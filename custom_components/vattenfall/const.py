@@ -5,7 +5,6 @@ from datetime import timedelta
 from homeassistant.const import CONF_PASSWORD as HA_CONF_PASSWORD
 
 DOMAIN = "vattenfall"
-PLATFORMS = ["sensor"]
 
 CONF_METERING_POINT_ID = "metering_point_id"
 CONF_CUSTOMER_ID = "customer_id"

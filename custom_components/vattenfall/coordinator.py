@@ -112,24 +112,21 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if mode in ("daily", "all"):
             for chunk_start, chunk_end in chunks:
-                daily_points.extend(
-                    await self.client.async_get_daily_consumption(chunk_start, chunk_end)
-                )
-                _LOGGER.debug("Fetched daily chunk %s–%s (%d points)", chunk_start, chunk_end, len(daily_points))
+                chunk = await self.client.async_get_daily_consumption(chunk_start, chunk_end)
+                daily_points.extend(chunk)
+                _LOGGER.debug("Fetched daily chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
 
         if mode in ("hourly", "all"):
             for chunk_start, chunk_end in chunks:
-                hourly_points.extend(
-                    await self.client.async_get_hourly_consumption(chunk_start, chunk_end, include_load=True)
-                )
-                _LOGGER.debug("Fetched hourly chunk %s–%s (%d points)", chunk_start, chunk_end, len(hourly_points))
+                chunk = await self.client.async_get_hourly_consumption(chunk_start, chunk_end, include_load=True)
+                hourly_points.extend(chunk)
+                _LOGGER.debug("Fetched hourly chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
 
         if mode in ("temperature", "all"):
             for chunk_start, chunk_end in chunks:
-                temperature_points.extend(
-                    await self.client.async_get_hourly_temperature(chunk_start, chunk_end, use_cet=True)
-                )
-                _LOGGER.debug("Fetched temperature chunk %s–%s (%d points)", chunk_start, chunk_end, len(temperature_points))
+                chunk = await self.client.async_get_hourly_temperature(chunk_start, chunk_end, use_cet=True)
+                temperature_points.extend(chunk)
+                _LOGGER.debug("Fetched temperature chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
 
         if daily_points or hourly_points or temperature_points:
             await self._async_write_statistics(daily_points, hourly_points, temperature_points)
@@ -250,38 +247,18 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temperature_points: list[HourlyTemperaturePoint],
     ) -> None:
         """Write fetched data points as external statistics into the HA recorder."""
-        # Lazy imports to avoid loading recorder/util at module level (breaks test stubs)
-        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        # Lazy imports to avoid loading recorder at module level (breaks test stubs)
         from homeassistant.components.recorder.models import StatisticData, StatisticMetaData  # noqa: PLC0415
-        from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
-            async_add_external_statistics,
-            statistics_during_period,
-        )
+        from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
         from homeassistant.const import UnitOfEnergy, UnitOfTemperature  # noqa: PLC0415
 
         metering_point_id: str = self.entry.data[CONF_METERING_POINT_ID]
-        recorder = get_instance(self.hass)
-
-        async def _last_sum_before(statistic_id: str, before_dt: datetime, period: str) -> float:
-            """Return the cumulative sum of the last stat written before before_dt, or 0."""
-            existing = await recorder.async_add_executor_job(
-                statistics_during_period,
-                self.hass,
-                before_dt - timedelta(days=1 if period == "day" else 0, hours=1 if period == "hour" else 0),
-                before_dt,
-                {statistic_id},
-                period,
-                None,
-                {"sum"},
-            )
-            rows = (existing or {}).get(statistic_id, [])
-            return rows[-1].get("sum") or 0.0 if rows else 0.0
 
         if daily_points:
             statistic_id = f"{DOMAIN}:daily_consumption_{metering_point_id}"
             first_day = date.fromisoformat(daily_points[0].date)
             range_start_dt = datetime(first_day.year, first_day.month, first_day.day, tzinfo=_API_TIMEZONE)
-            last_sum = await _last_sum_before(statistic_id, range_start_dt, "day")
+            last_sum = await self._async_last_sum_before(statistic_id, range_start_dt, "day")
 
             stats: list[StatisticData] = []
             cumsum = last_sum
@@ -305,7 +282,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if hourly_points:
             statistic_id = f"{DOMAIN}:hourly_consumption_{metering_point_id}"
             first_hour_dt = datetime.fromisoformat(hourly_points[0].date_time).replace(tzinfo=_API_TIMEZONE)
-            last_sum = await _last_sum_before(statistic_id, first_hour_dt, "hour")
+            last_sum = await self._async_last_sum_before(statistic_id, first_hour_dt, "hour")
 
             stats = []
             cumsum = last_sum
@@ -346,3 +323,24 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             async_add_external_statistics(self.hass, metadata, stats)
             _LOGGER.debug("Wrote %d temperature statistics for %s", len(stats), statistic_id)
+
+    async def _async_last_sum_before(
+        self, statistic_id: str, before_dt: datetime, period: str
+    ) -> float:
+        """Return the cumulative sum of the last stat before before_dt for statistic_id, or 0."""
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import statistics_during_period  # noqa: PLC0415
+
+        delta = timedelta(days=1) if period == "day" else timedelta(hours=1)
+        existing = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            before_dt - delta,
+            before_dt,
+            {statistic_id},
+            period,
+            None,
+            {"sum"},
+        )
+        rows = (existing or {}).get(statistic_id, [])
+        return rows[-1].get("sum") or 0.0 if rows else 0.0

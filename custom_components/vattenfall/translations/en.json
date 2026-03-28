@@ -39,22 +39,22 @@
         "name": "Latest hour consumption"
       },
       "today_total": {
-        "name": "Today total consumption"
+        "name": "Latest day hourly total"
       },
       "today_peak_hour": {
-        "name": "Today peak hour consumption"
+        "name": "Latest day peak hour"
       },
       "latest_temperature": {
         "name": "Latest outdoor temperature"
       },
       "today_avg_temperature": {
-        "name": "Today average temperature"
+        "name": "Latest day average temperature"
       },
       "today_min_temperature": {
-        "name": "Today minimum temperature"
+        "name": "Latest day minimum temperature"
       },
       "today_max_temperature": {
-        "name": "Today maximum temperature"
+        "name": "Latest day maximum temperature"
       }
     }
   }
