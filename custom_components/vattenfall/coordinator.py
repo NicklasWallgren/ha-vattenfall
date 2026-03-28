@@ -256,14 +256,14 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if daily_points:
             statistic_id = f"{DOMAIN}:daily_consumption_{metering_point_id}"
-            first_day = date.fromisoformat(daily_points[0].date)
+            first_day = datetime.fromisoformat(daily_points[0].date).date()
             range_start_dt = datetime(first_day.year, first_day.month, first_day.day, tzinfo=_API_TIMEZONE)
             last_sum = await self._async_last_sum_before(statistic_id, range_start_dt, "day")
 
             stats: list[StatisticData] = []
             cumsum = last_sum
             for point in daily_points:
-                d = date.fromisoformat(point.date)
+                d = datetime.fromisoformat(point.date).date()
                 start_dt = datetime(d.year, d.month, d.day, tzinfo=_API_TIMEZONE)
                 cumsum = round(cumsum + point.value_kwh, 3)
                 stats.append(StatisticData(start=start_dt, state=point.value_kwh, sum=cumsum))
