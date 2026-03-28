@@ -62,6 +62,27 @@ Install this integration with the following button:
 - Runtime dependency `httpx[http2]` is declared in `manifest.json` and installed by Home Assistant.
 - Debug logs can include sensitive data (credentials/cookies/tokens). Do not share raw debug output.
 
+## Backfill service
+
+You can backfill historical consumption data from Home Assistant using the custom service:
+
+- Service: `vattenfall.backfill`
+- Fields:
+  - `start_date` (required, `YYYY-MM-DD`)
+  - `end_date` (required, `YYYY-MM-DD`)
+  - `mode` (optional: `daily`, `hourly`, `both`, default `both`)
+  - `entry_id` (optional: target one specific config entry)
+
+Example call in Developer Tools -> Services:
+
+```yaml
+service: vattenfall.backfill
+data:
+  start_date: "2026-03-01"
+  end_date: "2026-03-27"
+  mode: both
+```
+
 ## Development
 
 Install test dependencies:

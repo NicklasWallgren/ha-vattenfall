@@ -49,7 +49,12 @@ def _install_dependency_stubs() -> None:
         class HomeAssistant:
             pass
 
+        class ServiceCall:
+            def __init__(self, data=None):
+                self.data = data or {}
+
         core_mod.HomeAssistant = HomeAssistant
+        core_mod.ServiceCall = ServiceCall
         sys.modules["homeassistant.core"] = core_mod
 
     if "homeassistant.const" not in sys.modules:
@@ -67,9 +72,77 @@ def _install_dependency_stubs() -> None:
         config_entries_mod.ConfigEntry = ConfigEntry
         sys.modules["homeassistant.config_entries"] = config_entries_mod
 
+    if "homeassistant.exceptions" not in sys.modules:
+        exceptions_mod = ModuleType("homeassistant.exceptions")
+
+        class HomeAssistantError(Exception):
+            pass
+
+        exceptions_mod.HomeAssistantError = HomeAssistantError
+        sys.modules["homeassistant.exceptions"] = exceptions_mod
+
     if "homeassistant.helpers" not in sys.modules:
         helpers_pkg = ModuleType("homeassistant.helpers")
         sys.modules["homeassistant.helpers"] = helpers_pkg
+
+    if "homeassistant.helpers.config_validation" not in sys.modules:
+        cv_mod = ModuleType("homeassistant.helpers.config_validation")
+
+        def _date(value):
+            return value
+
+        def _string(value):
+            return str(value)
+
+        cv_mod.date = _date
+        cv_mod.string = _string
+        sys.modules["homeassistant.helpers.config_validation"] = cv_mod
+
+    if "voluptuous" not in sys.modules:
+        vol_mod = ModuleType("voluptuous")
+
+        class _Schema:
+            def __init__(self, schema):
+                self.schema = schema
+
+            def __call__(self, value):
+                return value
+
+        class _Marker:
+            def __init__(self, key, default=None):
+                self.key = key
+                self.default = default
+
+            def __hash__(self):
+                return hash((self.key, self.default))
+
+            def __eq__(self, other):  # noqa: ANN001
+                return isinstance(other, _Marker) and (self.key, self.default) == (
+                    other.key,
+                    other.default,
+                )
+
+        def _required(key):
+            return _Marker(key)
+
+        def _optional(key, default=None):
+            return _Marker(key, default=default)
+
+        def _in(values):
+            allowed = set(values)
+
+            def _validator(value):
+                if value not in allowed:
+                    raise ValueError(f"Value {value!r} not in allowed set")
+                return value
+
+            return _validator
+
+        vol_mod.Schema = _Schema
+        vol_mod.Required = _required
+        vol_mod.Optional = _optional
+        vol_mod.In = _in
+        sys.modules["voluptuous"] = vol_mod
 
     if "homeassistant.helpers.aiohttp_client" not in sys.modules:
         aiohttp_client_mod = ModuleType("homeassistant.helpers.aiohttp_client")

@@ -1,0 +1,33 @@
+backfill:
+  name: Backfill Consumption
+  description: Fetch and apply historical consumption data for a date range.
+  fields:
+    start_date:
+      name: Start date
+      description: Start date in YYYY-MM-DD.
+      required: true
+      selector:
+        date:
+    end_date:
+      name: End date
+      description: End date in YYYY-MM-DD.
+      required: true
+      selector:
+        date:
+    mode:
+      name: Mode
+      description: Which data to backfill.
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - daily
+            - hourly
+            - both
+    entry_id:
+      name: Entry ID
+      description: Optional specific config entry id. Leave empty to backfill all loaded entries.
+      required: false
+      selector:
+        text:
