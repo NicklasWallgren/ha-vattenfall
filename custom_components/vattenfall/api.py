@@ -61,11 +61,31 @@ class VattenfallApiClient:
         self._password: str = config[CONF_PASSWORD]
         self._subscription_key: str = config[CONF_SUBSCRIPTION_KEY]
         self._allow_stub_data: bool = config.get(CONF_ALLOW_STUB_DATA, False)
-        self._client = httpx.AsyncClient(http2=True, timeout=30.0)
+        self._client: httpx.AsyncClient | None = None
+
+    @staticmethod
+    def _create_httpx_client() -> httpx.AsyncClient:
+        """Create a configured async HTTP client."""
+        return httpx.AsyncClient(http2=True, timeout=30.0)
+
+    async def _async_get_client(self) -> httpx.AsyncClient:
+        """Create and cache HTTP client lazily, off the event loop when possible."""
+        if self._client is not None:
+            return self._client
+
+        if hasattr(self._hass, "async_add_executor_job"):
+            self._client = await self._hass.async_add_executor_job(self._create_httpx_client)
+        else:
+            # Fallback for standalone test scripts where hass is a stub object.
+            self._client = self._create_httpx_client()
+
+        return self._client
 
     async def async_close(self) -> None:
         """Close HTTP client resources."""
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def async_authenticate(self, force: bool = False) -> None:
         """Authenticate against Vattenfall and ensure API cookies are available."""
@@ -106,13 +126,14 @@ class VattenfallApiClient:
 
     async def _async_login_flow(self) -> None:
         """Run Vattenfall login flow and populate auth cookies in jar."""
-        self._client.cookies.clear()
+        client = await self._async_get_client()
+        client.cookies.clear()
         _LOGGER.debug("Starting Vattenfall auth flow")
 
         headers = self._request_headers()
         cookies = self._cookies_for_url(DEFAULT_AUTH_START_URL)
         self._debug_log_request("GET", DEFAULT_AUTH_START_URL, headers, cookies=cookies)
-        response = await self._client.get(
+        response = await client.get(
             DEFAULT_AUTH_START_URL,
             headers=headers,
             cookies=cookies,
@@ -125,7 +146,7 @@ class VattenfallApiClient:
         headers = self._request_headers()
         cookies = self._cookies_for_url(authorize_url)
         self._debug_log_request("GET", authorize_url, headers, cookies=cookies)
-        response = await self._client.get(
+        response = await client.get(
             authorize_url,
             headers=headers,
             cookies=cookies,
@@ -168,7 +189,7 @@ class VattenfallApiClient:
         self._debug_log_request(
             "POST", _COMMONAUTH_URL, headers, cookies=commonauth_cookies, data=form_data
         )
-        response = await self._client.post(
+        response = await client.post(
             _COMMONAUTH_URL,
             data=form_data,
             headers=headers,
@@ -188,7 +209,7 @@ class VattenfallApiClient:
             oauth2_cookies["opbs"] = opbs_cookie
         headers = self._request_headers()
         self._debug_log_request("GET", oauth2_url, headers, cookies=oauth2_cookies)
-        response = await self._client.get(
+        response = await client.get(
             oauth2_url,
             headers=headers,
             cookies=oauth2_cookies,
@@ -202,7 +223,7 @@ class VattenfallApiClient:
         headers = self._request_headers()
         cookies = self._cookies_for_url(callback_url)
         self._debug_log_request("GET", callback_url, headers, cookies=cookies)
-        response = await self._client.get(
+        response = await client.get(
             callback_url,
             headers=headers,
             cookies=cookies,
@@ -223,6 +244,7 @@ class VattenfallApiClient:
         end_date: date,
     ) -> list[ConsumptionPoint]:
         """Fetch daily measured consumption from Vattenfall API."""
+        client = await self._async_get_client()
         endpoint = (
             f"{self._base_url}/consumption/consumption/"
             f"{self._metering_point_id}/{start_date}/{end_date}/Daily/Measured"
@@ -247,7 +269,7 @@ class VattenfallApiClient:
             raise VattenfallAuthError("Missing API auth cookies before consumption request")
 
         self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
-        response = await self._client.get(
+        response = await client.get(
             endpoint,
             headers=headers,
             cookies=cookies,
@@ -279,6 +301,8 @@ class VattenfallApiClient:
 
     def _extract_session_data_key(self) -> str:
         """Extract `sessionDataKey` from `sessionNonceCookie-<key>` cookie name."""
+        if self._client is None:
+            raise VattenfallAuthError("Could not find session nonce cookie")
         for cookie in self._client.cookies.jar:
             if cookie.name.startswith(_SESSION_NONCE_PREFIX):
                 return cookie.name.removeprefix(_SESSION_NONCE_PREFIX)
@@ -299,6 +323,8 @@ class VattenfallApiClient:
 
     def _cookie_value(self, name: str, domain_hint: str | None = None) -> str | None:
         """Read cookie value by name, optionally constrained by domain."""
+        if self._client is None:
+            return None
         for cookie in self._client.cookies.jar:
             if cookie.name != name:
                 continue
@@ -309,6 +335,8 @@ class VattenfallApiClient:
 
     def _cookies_for_url(self, url: str) -> dict[str, str]:
         """Return cookies that look applicable for the given URL."""
+        if self._client is None:
+            return {}
         parsed = urlparse(url)
         host = parsed.hostname or ""
         path = parsed.path or "/"
@@ -336,6 +364,8 @@ class VattenfallApiClient:
 
     def _set_auth_scope_cookie_from_callback(self, callback_url: str) -> None:
         """Set VF_AuthRequestScope cookie from callback state query param."""
+        if self._client is None:
+            return
         parsed = urlparse(callback_url)
         state = parse_qs(parsed.query).get("state", [None])[0]
         if not state:
