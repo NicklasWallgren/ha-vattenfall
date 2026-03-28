@@ -1,0 +1,30 @@
+name: Stale
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  stale:
+    name: Close stale issues & discussions
+    if: github.repository_owner == 'nicklaswallgren'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      discussions: write
+    steps:
+      - name: Stale issues
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-before-stale: 14
+          days-before-close: 7
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          stale-issue-message: >
+            This issue has been marked as stale due to inactivity. If no response
+            is provided within 7 days, it will be automatically closed. Feel free
+            to comment below if you'd like to keep it open.
+          exempt-issue-labels: no stale

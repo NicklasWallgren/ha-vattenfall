@@ -1,0 +1,4 @@
+aiohttp
+yarl
+pytest
+httpx[http2]==0.28.1

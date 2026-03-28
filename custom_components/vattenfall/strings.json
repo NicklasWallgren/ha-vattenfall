@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Vattenfall",
+        "description": "Configure your Vattenfall account and metering point.",
+        "data": {
+          "name": "Name",
+          "customer_id": "Customer ID",
+          "password": "Password",
+          "metering_point_id": "Metering point ID",
+          "subscription_key": "Subscription key",
+          "allow_stub_data": "Allow stub data when API/auth fails"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This metering point is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "latest_day": {
+        "name": "Latest day consumption"
+      },
+      "month_to_date": {
+        "name": "Month to date consumption"
+      },
+      "average_daily": {
+        "name": "Average daily consumption"
+      }
+    }
+  }
+}
