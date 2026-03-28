@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import logging
 
 import voluptuous as vol
@@ -29,8 +30,8 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Required(SERVICE_ATTR_START_DATE): cv.date,
         vol.Required(SERVICE_ATTR_END_DATE): cv.date,
-        vol.Optional(SERVICE_ATTR_MODE, default="both"): vol.In(
-            ["daily", "hourly", "temperature", "both"]
+        vol.Optional(SERVICE_ATTR_MODE, default="all"): vol.In(
+            ["daily", "hourly", "temperature", "all"]
         ),
         vol.Optional(SERVICE_ATTR_ENTRY_ID): cv.string,
     }
@@ -89,6 +90,8 @@ async def _async_handle_backfill_service(hass: HomeAssistant, call: ServiceCall)
 
     if end_date < start_date:
         raise HomeAssistantError("end_date must be on or after start_date")
+    if end_date >= date.today():
+        raise HomeAssistantError("end_date must be before today; cannot backfill future data")
 
     domain_data = hass.data.get(DOMAIN, {})
     if not domain_data:

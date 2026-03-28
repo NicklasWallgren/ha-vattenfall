@@ -149,7 +149,7 @@ class BackfillServiceTests(unittest.IsolatedAsyncioTestCase):
             {
                 const.SERVICE_ATTR_START_DATE: date(2026, 3, 10),
                 const.SERVICE_ATTR_END_DATE: date(2026, 3, 9),
-                const.SERVICE_ATTR_MODE: "both",
+                const.SERVICE_ATTR_MODE: "all",
             }
         )
 
@@ -157,6 +157,21 @@ class BackfillServiceTests(unittest.IsolatedAsyncioTestCase):
             await integration._async_handle_backfill_service(hass, call)
 
         self.assertIn("end_date must be on or after start_date", str(ctx.exception))
+
+    async def test_backfill_rejects_future_end_date(self) -> None:
+        hass = _FakeHass({"entry-1": {"coordinator": _FakeCoordinator()}})
+        call = _FakeCall(
+            {
+                const.SERVICE_ATTR_START_DATE: date(2026, 3, 1),
+                const.SERVICE_ATTR_END_DATE: date(2099, 1, 1),
+                const.SERVICE_ATTR_MODE: "all",
+            }
+        )
+
+        with self.assertRaises(HomeAssistantError) as ctx:
+            await integration._async_handle_backfill_service(hass, call)
+
+        self.assertIn("future", str(ctx.exception))
 
     async def test_backfill_targets_specific_entry_id(self) -> None:
         coordinator_1 = _FakeCoordinator()
@@ -212,15 +227,15 @@ class BackfillServiceTests(unittest.IsolatedAsyncioTestCase):
             {
                 const.SERVICE_ATTR_START_DATE: date(2026, 3, 1),
                 const.SERVICE_ATTR_END_DATE: date(2026, 3, 7),
-                const.SERVICE_ATTR_MODE: "both",
+                const.SERVICE_ATTR_MODE: "all",
             }
         )
 
         with self.assertRaises(HomeAssistantError) as ctx:
             await integration._async_handle_backfill_service(hass, call)
 
-        self.assertEqual(coordinator_ok.calls, [(date(2026, 3, 1), date(2026, 3, 7), "both")])
-        self.assertEqual(coordinator_fail.calls, [(date(2026, 3, 1), date(2026, 3, 7), "both")])
+        self.assertEqual(coordinator_ok.calls, [(date(2026, 3, 1), date(2026, 3, 7), "all")])
+        self.assertEqual(coordinator_fail.calls, [(date(2026, 3, 1), date(2026, 3, 7), "all")])
         self.assertIn("entry-fail", str(ctx.exception))
         self.assertIn("boom", str(ctx.exception))
 

@@ -18,14 +18,14 @@ backfill:
       name: Mode
       description: Which data to backfill.
       required: false
-      default: both
+      default: all
       selector:
         select:
           options:
             - daily
             - hourly
             - temperature
-            - both
+            - all
     entry_id:
       name: Entry ID
       description: Optional specific config entry id. Leave empty to backfill all loaded entries.

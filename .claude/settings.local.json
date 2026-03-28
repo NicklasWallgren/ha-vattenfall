@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(python3 -m pytest tests/ -x -q)"
+    ]
+  }
+}
