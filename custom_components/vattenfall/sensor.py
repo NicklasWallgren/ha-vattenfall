@@ -17,7 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, ATTR_HOURLY_END_DATE, ATTR_HOURLY_POINTS, ATTR_HOURLY_START_DATE
 from .coordinator import VattenfallDataUpdateCoordinator
 
 
@@ -58,6 +58,34 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         value_key="average_daily_kwh",
         icon="mdi:chart-line",
+    ),
+    VattenfallSensorEntityDescription(
+        key="latest_hour",
+        translation_key="latest_hour",
+        name="Latest Hour Consumption",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="latest_hour_kwh",
+        icon="mdi:clock-outline",
+    ),
+    VattenfallSensorEntityDescription(
+        key="today_total",
+        translation_key="today_total",
+        name="Today Total Consumption",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        value_key="today_total_kwh",
+        icon="mdi:calendar-today",
+    ),
+    VattenfallSensorEntityDescription(
+        key="today_peak_hour",
+        translation_key="today_peak_hour",
+        name="Today Peak Hour Consumption",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="today_peak_hour_kwh",
+        icon="mdi:chart-bell-curve-cumulative",
     ),
 )
 
@@ -114,4 +142,8 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
             "start_date": self.coordinator.data.get("start_date"),
             "end_date": self.coordinator.data.get("end_date"),
             "points": self.coordinator.data.get("points", []),
+            "hourly_start_date": self.coordinator.data.get(ATTR_HOURLY_START_DATE),
+            "hourly_end_date": self.coordinator.data.get(ATTR_HOURLY_END_DATE),
+            "hourly_points": self.coordinator.data.get(ATTR_HOURLY_POINTS, []),
+            "today_peak_hour_time": self.coordinator.data.get("today_peak_hour_time"),
         }

@@ -24,3 +24,6 @@ DEFAULT_AUTH_START_URL = (
 ATTR_START_DATE = "start_date"
 ATTR_END_DATE = "end_date"
 ATTR_POINTS = "points"
+ATTR_HOURLY_START_DATE = "hourly_start_date"
+ATTR_HOURLY_END_DATE = "hourly_end_date"
+ATTR_HOURLY_POINTS = "hourly_points"

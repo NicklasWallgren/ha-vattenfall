@@ -33,6 +33,15 @@
       },
       "average_daily": {
         "name": "Average daily consumption"
+      },
+      "latest_hour": {
+        "name": "Latest hour consumption"
+      },
+      "today_total": {
+        "name": "Today total consumption"
+      },
+      "today_peak_hour": {
+        "name": "Today peak hour consumption"
       }
     }
   }

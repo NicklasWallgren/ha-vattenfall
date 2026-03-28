@@ -10,6 +10,9 @@ Custom integration for Home Assistant that retrieves electricity consumption fro
   - Latest day consumption
   - Month-to-date consumption
   - Average daily consumption
+  - Latest hour consumption
+  - Today total consumption
+  - Today peak hour consumption
 - HACS compatible
 
 ## Installation

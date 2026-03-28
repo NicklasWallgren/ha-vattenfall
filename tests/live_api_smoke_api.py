@@ -141,25 +141,47 @@ async def _run() -> int:
         print(
             f"Fetching consumption via api.py for {start_date.isoformat()} -> {end_date.isoformat()} ..."
         )
-        points = await client.async_get_daily_consumption(start_date, end_date)
+        daily_points = await client.async_get_daily_consumption(start_date, end_date)
+        hourly_points = await client.async_get_hourly_consumption(
+            start_date, end_date, include_load=True
+        )
 
-        if not points:
+        if not daily_points:
             print("ERROR: API returned no points", file=sys.stderr)
             return 1
+        if not hourly_points:
+            print("ERROR: Hourly API returned no points", file=sys.stderr)
+            return 1
 
-        points = sorted(points, key=lambda p: p.date)
-        values = [p.value_kwh for p in points]
-        latest = points[-1]
+        daily_points = sorted(daily_points, key=lambda p: p.date)
+        daily_values = [p.value_kwh for p in daily_points]
+        latest_daily = daily_points[-1]
+
+        hourly_points = sorted(hourly_points, key=lambda p: p.date_time)
+        hourly_values = [p.value_kwh for p in hourly_points]
+        latest_hourly = hourly_points[-1]
+        today_iso = date.today().isoformat()
+        today_hourly = [p for p in hourly_points if p.date_time.startswith(today_iso)]
+        today_total = sum(p.value_kwh for p in today_hourly)
+        today_peak = max(today_hourly, key=lambda p: p.value_kwh) if today_hourly else None
 
         print("OK: live api.py smoke test passed")
         print(f"Metering point: {metering_point_id}")
-        print(f"Range: {start_date.isoformat()} -> {end_date.isoformat()}")
-        print(f"Points: {len(points)}")
-        print(f"Total kWh: {sum(values):.3f}")
-        print(f"Average kWh/day: {(sum(values) / len(values)):.3f}")
-        print(f"Min kWh: {min(values):.3f}")
-        print(f"Max kWh: {max(values):.3f}")
-        print(f"Latest: {latest.date} = {latest.value_kwh:.3f} kWh")
+        print(f"Daily range: {start_date.isoformat()} -> {end_date.isoformat()}")
+        print(f"Daily points: {len(daily_points)}")
+        print(f"Daily total kWh: {sum(daily_values):.3f}")
+        print(f"Daily average kWh/day: {(sum(daily_values) / len(daily_values)):.3f}")
+        print(f"Daily min kWh: {min(daily_values):.3f}")
+        print(f"Daily max kWh: {max(daily_values):.3f}")
+        print(f"Latest day: {latest_daily.date} = {latest_daily.value_kwh:.3f} kWh")
+
+        print(f"Hourly points: {len(hourly_points)}")
+        print(f"Latest hour: {latest_hourly.date_time} = {latest_hourly.value_kwh:.3f} kWh")
+        print(f"Hourly min kWh: {min(hourly_values):.3f}")
+        print(f"Hourly max kWh: {max(hourly_values):.3f}")
+        print(f"Today total kWh: {today_total:.3f}")
+        if today_peak is not None:
+            print(f"Today peak hour: {today_peak.date_time} = {today_peak.value_kwh:.3f} kWh")
         return 0
     except Exception as err:  # noqa: BLE001
         print(f"ERROR: live api.py smoke test failed: {err}", file=sys.stderr)

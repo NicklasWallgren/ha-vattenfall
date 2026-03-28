@@ -355,6 +355,56 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(last_call[1], consumption_url)
         self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
 
+    async def test_get_hourly_consumption_returns_points(self) -> None:
+        routes = _auth_routes()
+        consumption_url = (
+            "https://services.vattenfalleldistribution.se/consumption/consumption/"
+            "HDG123456789/2026-03-01/2026-03-02/Hourly/Measured?includeLoad=true"
+        )
+        routes[("GET", consumption_url)] = [
+            FakeResponse(
+                status=200,
+                json_body={
+                    "startDate": "2026-03-01T00:00:00",
+                    "endDate": "2026-03-02T00:00:00",
+                    "aggregationInterval": "Hourly",
+                    "consumption": [
+                        {
+                            "date": "2026-03-01T01:00:00",
+                            "consumption": 1.2,
+                            "status": "012",
+                        },
+                        {
+                            "date": "2026-03-01T00:00:00",
+                            "consumption": 0.8,
+                            "status": "012",
+                        },
+                    ],
+                },
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = api.VattenfallApiClient(hass=object(), config=_base_config())
+            points = await client.async_get_hourly_consumption(
+                date(2026, 3, 1),
+                date(2026, 3, 2),
+                include_load=True,
+            )
+
+        self.assertEqual(len(points), 2)
+        self.assertEqual(points[0].date_time, "2026-03-01T00:00:00")
+        self.assertEqual(points[0].value_kwh, 0.8)
+        self.assertEqual(points[1].date_time, "2026-03-01T01:00:00")
+        self.assertEqual(points[1].value_kwh, 1.2)
+        self.assertEqual(points[1].status, "012")
+
+        last_call = session.calls[-1]
+        self.assertEqual(last_call[0], "GET")
+        self.assertEqual(last_call[1], consumption_url)
+        self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
+
     async def test_get_daily_consumption_reauths_after_unauthorized(self) -> None:
         routes = _auth_routes()
         for key, values in _auth_routes().items():

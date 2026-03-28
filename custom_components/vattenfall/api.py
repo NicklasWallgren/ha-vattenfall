@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -48,6 +48,15 @@ class ConsumptionPoint:
 
     date: str
     value_kwh: float
+
+
+@dataclass(slots=True)
+class HourlyConsumptionPoint:
+    """A single hourly consumption datapoint."""
+
+    date_time: str
+    value_kwh: float
+    status: str | None = None
 
 
 class VattenfallApiClient:
@@ -113,6 +122,31 @@ class VattenfallApiClient:
             if self._allow_stub_data:
                 _LOGGER.warning("Consumption fetch failed, falling back to stub data: %s", err)
                 return self._build_stub_points(start_date, end_date)
+            if isinstance(err, VattenfallApiError):
+                raise
+            raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
+
+    async def async_get_hourly_consumption(
+        self,
+        start_date: date,
+        end_date: date,
+        include_load: bool = True,
+    ) -> list[HourlyConsumptionPoint]:
+        """Fetch hourly measured consumption from the API."""
+        try:
+            await self.async_authenticate()
+            return await self._async_fetch_hourly_consumption(
+                start_date, end_date, include_load=include_load
+            )
+        except VattenfallAuthError:
+            await self.async_authenticate(force=True)
+            return await self._async_fetch_hourly_consumption(
+                start_date, end_date, include_load=include_load
+            )
+        except (VattenfallApiError, httpx.HTTPError) as err:
+            if self._allow_stub_data:
+                _LOGGER.warning("Hourly consumption fetch failed, falling back to stub data: %s", err)
+                return self._build_stub_hourly_points(start_date, end_date)
             if isinstance(err, VattenfallApiError):
                 raise
             raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
@@ -298,6 +332,68 @@ class VattenfallApiClient:
             return self._build_stub_points(start_date, end_date)
 
         raise VattenfallApiError("Unexpected API payload shape; no points extracted")
+
+    async def _async_fetch_hourly_consumption(
+        self,
+        start_date: date,
+        end_date: date,
+        include_load: bool,
+    ) -> list[HourlyConsumptionPoint]:
+        """Fetch hourly measured consumption from Vattenfall API."""
+        client = await self._async_get_client()
+        endpoint = (
+            f"{self._base_url}/consumption/consumption/"
+            f"{self._metering_point_id}/{start_date}/{end_date}/Hourly/Measured"
+            f"?includeLoad={'true' if include_load else 'false'}"
+        )
+
+        headers = self._request_headers(
+            sec_fetch_dest="empty",
+            sec_fetch_mode="cors",
+            sec_fetch_site="same-site",
+            priority="u=1, i",
+        )
+        headers["accept"] = "application/json, text/plain, */*"
+        headers["ocp-apim-subscription-key"] = self._subscription_key
+
+        cookies: dict[str, str] = {}
+        for key in ("csrf-token", "VF_SecurityCookie", "VF_AccessCookie"):
+            value = self._cookie_value(key, domain_hint="vattenfalleldistribution.se")
+            if value:
+                cookies[key] = value
+
+        if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
+            raise VattenfallAuthError("Missing API auth cookies before hourly consumption request")
+
+        self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
+        response = await client.get(
+            endpoint,
+            headers=headers,
+            cookies=cookies,
+            follow_redirects=False,
+        )
+        self._debug_log_response("hourly_consumption", response)
+
+        if response.status_code in (401, 403):
+            raise VattenfallAuthError(
+                f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
+                f"{response.text[:200]}"
+            )
+        if response.status_code >= 400:
+            raise VattenfallApiError(
+                f"Vattenfall API returned HTTP {response.status_code}: {response.text[:200]}"
+            )
+
+        payload = response.json()
+        points = self._extract_hourly_points(payload)
+        if points:
+            return points
+
+        if self._allow_stub_data:
+            _LOGGER.warning("Unexpected hourly API payload shape, falling back to stub data")
+            return self._build_stub_hourly_points(start_date, end_date)
+
+        raise VattenfallApiError("Unexpected hourly API payload shape; no points extracted")
 
     def _extract_session_data_key(self) -> str:
         """Extract `sessionDataKey` from `sessionNonceCookie-<key>` cookie name."""
@@ -502,6 +598,51 @@ class VattenfallApiClient:
         points.sort(key=lambda p: p.date)
         return points
 
+    def _extract_hourly_points(self, payload: Any) -> list[HourlyConsumptionPoint]:
+        """Extract hourly points from API response payload."""
+        raw_points: list[dict[str, Any]] = []
+        if isinstance(payload, dict) and isinstance(payload.get("consumption"), list):
+            raw_points = [
+                item for item in payload["consumption"] if isinstance(item, dict)
+            ]
+        else:
+            raw_points = self._flatten_points(payload)
+
+        points: list[HourlyConsumptionPoint] = []
+        for item in raw_points:
+            date_time = (
+                item.get("date")
+                or item.get("Date")
+                or item.get("period")
+                or item.get("Period")
+                or item.get("from")
+                or item.get("From")
+            )
+            value = (
+                item.get("consumption")
+                or item.get("Consumption")
+                or item.get("value")
+                or item.get("Value")
+                or item.get("quantity")
+                or item.get("Quantity")
+            )
+            status = item.get("status") or item.get("Status")
+
+            try:
+                if date_time is not None and value is not None:
+                    points.append(
+                        HourlyConsumptionPoint(
+                            date_time=str(date_time),
+                            value_kwh=float(value),
+                            status=str(status) if status is not None else None,
+                        )
+                    )
+            except (TypeError, ValueError):
+                continue
+
+        points.sort(key=lambda p: p.date_time)
+        return points
+
     def _flatten_points(self, payload: Any) -> list[dict[str, Any]]:
         """Flatten known/unknown payload shapes into a list of dict points."""
         if isinstance(payload, list):
@@ -543,5 +684,29 @@ class VattenfallApiClient:
             value = 8.0 + ((day.day % 7) * 0.7)
             points.append(ConsumptionPoint(date=day.isoformat(), value_kwh=round(value, 3)))
             day += timedelta(days=1)
+
+        return points
+
+    def _build_stub_hourly_points(
+        self, start_date: date, end_date: date
+    ) -> list[HourlyConsumptionPoint]:
+        """Build deterministic hourly stub data for development/testing."""
+        points: list[HourlyConsumptionPoint] = []
+        dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time()).replace(
+            minute=0, second=0, microsecond=0
+        )
+
+        while dt <= end_dt:
+            hour_weight = 1.2 if 6 <= dt.hour <= 9 else 0.7 if 0 <= dt.hour <= 5 else 0.9
+            value = 0.35 + ((dt.day % 5) * 0.11) + hour_weight
+            points.append(
+                HourlyConsumptionPoint(
+                    date_time=dt.isoformat(),
+                    value_kwh=round(value, 3),
+                    status="012",
+                )
+            )
+            dt += timedelta(hours=1)
 
         return points
