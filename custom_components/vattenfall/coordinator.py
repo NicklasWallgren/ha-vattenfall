@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 import logging
 from typing import Any
 
@@ -38,10 +38,10 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data from API."""
         try:
-            today = date.today()
-            month_start = today.replace(day=1)
+            end_date = date.today() - timedelta(days=1)
+            month_start = end_date.replace(day=1)
 
-            points = await self.client.async_get_daily_consumption(month_start, today)
+            points = await self.client.async_get_daily_consumption(month_start, end_date)
             values = [point.value_kwh for point in points]
 
             latest_day_kwh = values[-1] if values else 0.0
@@ -53,7 +53,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "month_to_date_kwh": month_to_date_kwh,
                 "average_daily_kwh": avg_daily_kwh,
                 ATTR_START_DATE: month_start.isoformat(),
-                ATTR_END_DATE: today.isoformat(),
+                ATTR_END_DATE: end_date.isoformat(),
                 ATTR_POINTS: [asdict(point) for point in points],
             }
         except VattenfallApiError as err:
