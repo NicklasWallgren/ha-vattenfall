@@ -253,9 +253,10 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from homeassistant.const import UnitOfEnergy, UnitOfTemperature  # noqa: PLC0415
 
         metering_point_id: str = self.entry.data[CONF_METERING_POINT_ID]
+        statistic_prefix = metering_point_id.lower()
 
         if daily_points:
-            statistic_id = f"{DOMAIN}:daily_consumption_{metering_point_id}"
+            statistic_id = f"{DOMAIN}:daily_consumption_{statistic_prefix}"
             first_day = datetime.fromisoformat(daily_points[0].date).date()
             range_start_dt = datetime(first_day.year, first_day.month, first_day.day, tzinfo=_API_TIMEZONE)
             last_sum = await self._async_last_sum_before(statistic_id, range_start_dt, "day")
@@ -280,7 +281,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Wrote %d daily statistics for %s", len(stats), statistic_id)
 
         if hourly_points:
-            statistic_id = f"{DOMAIN}:hourly_consumption_{metering_point_id}"
+            statistic_id = f"{DOMAIN}:hourly_consumption_{statistic_prefix}"
             first_hour_dt = datetime.fromisoformat(hourly_points[0].date_time).replace(tzinfo=_API_TIMEZONE)
             last_sum = await self._async_last_sum_before(statistic_id, first_hour_dt, "hour")
 
@@ -303,9 +304,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Wrote %d hourly statistics for %s", len(stats), statistic_id)
 
         if temperature_points:
-            temperature_area_code: str = self.entry.data.get(
+            temperature_area_code: str = str(self.entry.data.get(
                 CONF_TEMPERATURE_AREA_CODE, DEFAULT_TEMPERATURE_AREA_CODE
-            )
+            )).lower()
             statistic_id = f"{DOMAIN}:temperature_{temperature_area_code}"
 
             stats = []
