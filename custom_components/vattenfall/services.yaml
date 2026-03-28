@@ -1,6 +1,6 @@
 backfill:
-  name: Backfill Consumption
-  description: Fetch and apply historical consumption data for a date range.
+  name: Backfill Data
+  description: Fetch and apply historical consumption and temperature data for a date range.
   fields:
     start_date:
       name: Start date
@@ -24,6 +24,7 @@ backfill:
           options:
             - daily
             - hourly
+            - temperature
             - both
     entry_id:
       name: Entry ID

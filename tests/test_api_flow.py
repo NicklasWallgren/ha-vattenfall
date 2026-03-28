@@ -370,6 +370,7 @@ def _base_config() -> dict[str, object]:
         "customer_id": "123456789",
         "password": "secret",
         "subscription_key": "sub-key",
+        "temperature_area_code": "14132",
         "allow_stub_data": False,
     }
 
@@ -476,6 +477,47 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         last_call = session.calls[-1]
         self.assertEqual(last_call[0], "GET")
         self.assertEqual(last_call[1], consumption_url)
+        self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
+
+    async def test_get_hourly_temperature_returns_points(self) -> None:
+        routes = _auth_routes()
+        temperature_url = (
+            "https://services.vattenfalleldistribution.se/climate/temperature/"
+            "14132/Hourly/2026-03-01/2026-03-02?useCet=true"
+        )
+        routes[("GET", temperature_url)] = [
+            FakeResponse(
+                status=200,
+                json_body={
+                    "temperatures": [
+                        {"date": "2026-03-01T01:00:00", "value": 2.3},
+                        {"date": "2026-03-01T00:00:00", "value": 1.8},
+                        {"date": "2026-03-01T02:00:00", "value": 0.0},
+                    ]
+                },
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = api.VattenfallApiClient(hass=object(), config=_base_config())
+            points = await client.async_get_hourly_temperature(
+                date(2026, 3, 1),
+                date(2026, 3, 2),
+                use_cet=True,
+            )
+
+        self.assertEqual(len(points), 3)
+        self.assertEqual(points[0].date_time, "2026-03-01T00:00:00")
+        self.assertEqual(points[0].value_c, 1.8)
+        self.assertEqual(points[1].date_time, "2026-03-01T01:00:00")
+        self.assertEqual(points[1].value_c, 2.3)
+        self.assertEqual(points[2].date_time, "2026-03-01T02:00:00")
+        self.assertEqual(points[2].value_c, 0.0)
+
+        last_call = session.calls[-1]
+        self.assertEqual(last_call[0], "GET")
+        self.assertEqual(last_call[1], temperature_url)
         self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
 
     async def test_get_daily_consumption_reauths_after_unauthorized(self) -> None:

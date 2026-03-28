@@ -30,7 +30,7 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
         vol.Required(SERVICE_ATTR_START_DATE): cv.date,
         vol.Required(SERVICE_ATTR_END_DATE): cv.date,
         vol.Optional(SERVICE_ATTR_MODE, default="both"): vol.In(
-            ["daily", "hourly", "both"]
+            ["daily", "hourly", "temperature", "both"]
         ),
         vol.Optional(SERVICE_ATTR_ENTRY_ID): cv.string,
     }

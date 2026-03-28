@@ -17,7 +17,9 @@ from .const import (
     CONF_METERING_POINT_ID,
     CONF_PASSWORD,
     CONF_SUBSCRIPTION_KEY,
+    CONF_TEMPERATURE_AREA_CODE,
     DEFAULT_NAME,
+    DEFAULT_TEMPERATURE_AREA_CODE,
     DOMAIN,
 )
 
@@ -65,6 +67,10 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_PASSWORD): str,
                 vol.Required(CONF_METERING_POINT_ID): str,
                 vol.Required(CONF_SUBSCRIPTION_KEY): str,
+                vol.Optional(
+                    CONF_TEMPERATURE_AREA_CODE,
+                    default=DEFAULT_TEMPERATURE_AREA_CODE,
+                ): str,
                 vol.Optional(CONF_ALLOW_STUB_DATA, default=False): bool,
             }
         )

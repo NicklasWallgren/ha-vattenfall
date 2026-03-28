@@ -12,12 +12,20 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy
+from homeassistant.const import UnitOfEnergy, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, ATTR_HOURLY_END_DATE, ATTR_HOURLY_POINTS, ATTR_HOURLY_START_DATE
+from .const import (
+    ATTR_HOURLY_END_DATE,
+    ATTR_HOURLY_POINTS,
+    ATTR_HOURLY_START_DATE,
+    ATTR_TEMPERATURE_END_DATE,
+    ATTR_TEMPERATURE_POINTS,
+    ATTR_TEMPERATURE_START_DATE,
+    DOMAIN,
+)
 from .coordinator import VattenfallDataUpdateCoordinator
 
 
@@ -87,6 +95,46 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         value_key="today_peak_hour_kwh",
         icon="mdi:chart-bell-curve-cumulative",
     ),
+    VattenfallSensorEntityDescription(
+        key="latest_temperature",
+        translation_key="latest_temperature",
+        name="Latest Outdoor Temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="latest_temperature_c",
+        icon="mdi:thermometer",
+    ),
+    VattenfallSensorEntityDescription(
+        key="today_avg_temperature",
+        translation_key="today_avg_temperature",
+        name="Today Average Temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="today_avg_temperature_c",
+        icon="mdi:thermometer-lines",
+    ),
+    VattenfallSensorEntityDescription(
+        key="today_min_temperature",
+        translation_key="today_min_temperature",
+        name="Today Minimum Temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="today_min_temperature_c",
+        icon="mdi:thermometer-low",
+    ),
+    VattenfallSensorEntityDescription(
+        key="today_max_temperature",
+        translation_key="today_max_temperature",
+        name="Today Maximum Temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="today_max_temperature_c",
+        icon="mdi:thermometer-high",
+    ),
 )
 
 
@@ -145,5 +193,8 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
             "hourly_start_date": self.coordinator.data.get(ATTR_HOURLY_START_DATE),
             "hourly_end_date": self.coordinator.data.get(ATTR_HOURLY_END_DATE),
             "hourly_points": self.coordinator.data.get(ATTR_HOURLY_POINTS, []),
+            "temperature_start_date": self.coordinator.data.get(ATTR_TEMPERATURE_START_DATE),
+            "temperature_end_date": self.coordinator.data.get(ATTR_TEMPERATURE_END_DATE),
+            "temperature_points": self.coordinator.data.get(ATTR_TEMPERATURE_POINTS, []),
             "today_peak_hour_time": self.coordinator.data.get("today_peak_hour_time"),
         }

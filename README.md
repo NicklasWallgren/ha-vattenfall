@@ -13,6 +13,10 @@ Custom integration for Home Assistant that retrieves electricity consumption fro
   - Latest hour consumption
   - Today total consumption
   - Today peak hour consumption
+  - Latest outdoor temperature
+  - Today average temperature
+  - Today minimum temperature
+  - Today maximum temperature
 - HACS compatible
 
 ## Installation
@@ -55,6 +59,7 @@ Install this integration with the following button:
    - `Password`
    - `Metering point ID`
    - `Subscription key`
+   - `Temperature area code` (defaults to `14132`)
 
 ## Notes
 
@@ -70,7 +75,7 @@ You can backfill historical consumption data from Home Assistant using the custo
 - Fields:
   - `start_date` (required, `YYYY-MM-DD`)
   - `end_date` (required, `YYYY-MM-DD`)
-  - `mode` (optional: `daily`, `hourly`, `both`, default `both`)
+  - `mode` (optional: `daily`, `hourly`, `temperature`, `both`, default `both`)
   - `entry_id` (optional: target one specific config entry)
 
 Example call in Developer Tools -> Services:

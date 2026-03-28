@@ -181,6 +181,24 @@ class BackfillServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(coordinator_1.calls, [])
         self.assertEqual(coordinator_2.calls, [(date(2026, 3, 1), date(2026, 3, 7), "hourly")])
 
+    async def test_backfill_temperature_mode_forwards_to_coordinator(self) -> None:
+        coordinator = _FakeCoordinator()
+        hass = _FakeHass({"entry-1": {"coordinator": coordinator}})
+        call = _FakeCall(
+            {
+                const.SERVICE_ATTR_START_DATE: date(2026, 3, 1),
+                const.SERVICE_ATTR_END_DATE: date(2026, 3, 7),
+                const.SERVICE_ATTR_MODE: "temperature",
+            }
+        )
+
+        await integration._async_handle_backfill_service(hass, call)
+
+        self.assertEqual(
+            coordinator.calls,
+            [(date(2026, 3, 1), date(2026, 3, 7), "temperature")],
+        )
+
     async def test_backfill_partial_failure_reports_failed_entry(self) -> None:
         coordinator_ok = _FakeCoordinator()
         coordinator_fail = _FakeCoordinator(RuntimeError("boom"))

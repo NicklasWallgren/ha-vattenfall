@@ -181,6 +181,11 @@ async def _run() -> int:
         os.getenv("VATTENFALL_METERING_POINT_ID")
         or input("Metering point ID: ").strip()
     )
+    temperature_area_code = (
+        os.getenv("VATTENFALL_TEMPERATURE_AREA_CODE")
+        or input("Temperature area code [14132]: ").strip()
+        or "14132"
+    )
     subscription_key = (
         os.getenv("VATTENFALL_SUBSCRIPTION_KEY")
         or input("Subscription key: ").strip()
@@ -198,6 +203,7 @@ async def _run() -> int:
         "password": password,
         "metering_point_id": metering_point_id,
         "subscription_key": subscription_key,
+        "temperature_area_code": temperature_area_code,
         "allow_stub_data": False,
     }
 
@@ -214,9 +220,17 @@ async def _run() -> int:
         print(
             f"Fetching consumption via api.py for {start_date.isoformat()} -> {end_date.isoformat()} ..."
         )
+        print(
+            "Fetching temperature via api.py for "
+            f"{start_date.isoformat()} -> {end_date.isoformat()} "
+            f"(area code {temperature_area_code}, Hourly, useCet=true) ..."
+        )
         daily_points = await client.async_get_daily_consumption(start_date, end_date)
         hourly_points = await client.async_get_hourly_consumption(
             start_date, end_date, include_load=True
+        )
+        temperature_points = await client.async_get_hourly_temperature(
+            start_date, end_date, use_cet=True
         )
 
         if not daily_points:
@@ -224,6 +238,9 @@ async def _run() -> int:
             return 1
         if not hourly_points:
             print("ERROR: Hourly API returned no points", file=sys.stderr)
+            return 1
+        if not temperature_points:
+            print("ERROR: Temperature API returned no points", file=sys.stderr)
             return 1
 
         daily_points = sorted(daily_points, key=lambda p: p.date)
@@ -237,6 +254,11 @@ async def _run() -> int:
         today_hourly = [p for p in hourly_points if p.date_time.startswith(today_iso)]
         today_total = sum(p.value_kwh for p in today_hourly)
         today_peak = max(today_hourly, key=lambda p: p.value_kwh) if today_hourly else None
+
+        temperature_points = sorted(temperature_points, key=lambda p: p.date_time)
+        temp_values = [p.value_c for p in temperature_points]
+        latest_temperature = temperature_points[-1]
+        today_temps = [p.value_c for p in temperature_points if p.date_time.startswith(today_iso)]
 
         print("OK: live api.py smoke test passed")
         print(f"Metering point: {metering_point_id}")
@@ -255,6 +277,18 @@ async def _run() -> int:
         print(f"Today total kWh: {today_total:.3f}")
         if today_peak is not None:
             print(f"Today peak hour: {today_peak.date_time} = {today_peak.value_kwh:.3f} kWh")
+        print(f"Temperature area code: {temperature_area_code}")
+        print(
+            "Temperature endpoint: "
+            f"https://services.vattenfalleldistribution.se/climate/temperature/"
+            f"{temperature_area_code}/Hourly/{start_date.isoformat()}/{end_date.isoformat()}?useCet=true"
+        )
+        print(f"Temperature points: {len(temperature_points)}")
+        print(f"Latest temperature: {latest_temperature.date_time} = {latest_temperature.value_c:.1f} C")
+        print(f"Temperature min C: {min(temp_values):.1f}")
+        print(f"Temperature max C: {max(temp_values):.1f}")
+        if today_temps:
+            print(f"Today avg temperature C: {sum(today_temps) / len(today_temps):.2f}")
         return 0
     except Exception as err:  # noqa: BLE001
         print(f"ERROR: live api.py smoke test failed: {err}", file=sys.stderr)

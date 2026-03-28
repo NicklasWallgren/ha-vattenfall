@@ -10,6 +10,7 @@
           "password": "Password",
           "metering_point_id": "Metering point ID",
           "subscription_key": "Subscription key",
+          "temperature_area_code": "Temperature area code",
           "allow_stub_data": "Allow stub data when API/auth fails"
         }
       }
@@ -42,6 +43,18 @@
       },
       "today_peak_hour": {
         "name": "Today peak hour consumption"
+      },
+      "latest_temperature": {
+        "name": "Latest outdoor temperature"
+      },
+      "today_avg_temperature": {
+        "name": "Today average temperature"
+      },
+      "today_min_temperature": {
+        "name": "Today minimum temperature"
+      },
+      "today_max_temperature": {
+        "name": "Today maximum temperature"
       }
     }
   }

@@ -17,8 +17,10 @@ from .const import (
     CONF_METERING_POINT_ID,
     CONF_PASSWORD,
     CONF_SUBSCRIPTION_KEY,
+    CONF_TEMPERATURE_AREA_CODE,
     DEFAULT_AUTH_START_URL,
     DEFAULT_BASE_URL,
+    DEFAULT_TEMPERATURE_AREA_CODE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +61,14 @@ class HourlyConsumptionPoint:
     status: str | None = None
 
 
+@dataclass(slots=True)
+class HourlyTemperaturePoint:
+    """A single hourly temperature datapoint."""
+
+    date_time: str
+    value_c: float
+
+
 class VattenfallApiClient:
     """Vattenfall API client."""
 
@@ -69,6 +79,9 @@ class VattenfallApiClient:
         self._customer_id: str = config[CONF_CUSTOMER_ID]
         self._password: str = config[CONF_PASSWORD]
         self._subscription_key: str = config[CONF_SUBSCRIPTION_KEY]
+        self._temperature_area_code: str = str(
+            config.get(CONF_TEMPERATURE_AREA_CODE, DEFAULT_TEMPERATURE_AREA_CODE)
+        )
         self._allow_stub_data: bool = config.get(CONF_ALLOW_STUB_DATA, False)
         self._client: httpx.AsyncClient | None = None
 
@@ -147,6 +160,27 @@ class VattenfallApiClient:
             if self._allow_stub_data:
                 _LOGGER.warning("Hourly consumption fetch failed, falling back to stub data: %s", err)
                 return self._build_stub_hourly_points(start_date, end_date)
+            if isinstance(err, VattenfallApiError):
+                raise
+            raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
+
+    async def async_get_hourly_temperature(
+        self,
+        start_date: date,
+        end_date: date,
+        use_cet: bool = True,
+    ) -> list[HourlyTemperaturePoint]:
+        """Fetch hourly temperature from the API."""
+        try:
+            await self.async_authenticate()
+            return await self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet)
+        except VattenfallAuthError:
+            await self.async_authenticate(force=True)
+            return await self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet)
+        except (VattenfallApiError, httpx.HTTPError) as err:
+            if self._allow_stub_data:
+                _LOGGER.warning("Hourly temperature fetch failed, falling back to stub data: %s", err)
+                return self._build_stub_hourly_temperature_points(start_date, end_date)
             if isinstance(err, VattenfallApiError):
                 raise
             raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
@@ -394,6 +428,67 @@ class VattenfallApiClient:
             return self._build_stub_hourly_points(start_date, end_date)
 
         raise VattenfallApiError("Unexpected hourly API payload shape; no points extracted")
+
+    async def _async_fetch_hourly_temperature(
+        self,
+        start_date: date,
+        end_date: date,
+        use_cet: bool,
+    ) -> list[HourlyTemperaturePoint]:
+        """Fetch hourly temperature from Vattenfall API."""
+        client = await self._async_get_client()
+        endpoint = (
+            f"{self._base_url}/climate/temperature/{self._temperature_area_code}/"
+            f"Hourly/{start_date}/{end_date}?useCet={'true' if use_cet else 'false'}"
+        )
+
+        headers = self._request_headers(
+            sec_fetch_dest="empty",
+            sec_fetch_mode="cors",
+            sec_fetch_site="same-site",
+            priority="u=1, i",
+        )
+        headers["accept"] = "application/json, text/plain, */*"
+        headers["ocp-apim-subscription-key"] = self._subscription_key
+
+        cookies: dict[str, str] = {}
+        for key in ("csrf-token", "VF_SecurityCookie", "VF_AccessCookie"):
+            value = self._cookie_value(key, domain_hint="vattenfalleldistribution.se")
+            if value:
+                cookies[key] = value
+
+        if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
+            raise VattenfallAuthError("Missing API auth cookies before hourly temperature request")
+
+        self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
+        response = await client.get(
+            endpoint,
+            headers=headers,
+            cookies=cookies,
+            follow_redirects=False,
+        )
+        self._debug_log_response("hourly_temperature", response)
+
+        if response.status_code in (401, 403):
+            raise VattenfallAuthError(
+                f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
+                f"{response.text[:200]}"
+            )
+        if response.status_code >= 400:
+            raise VattenfallApiError(
+                f"Vattenfall API returned HTTP {response.status_code}: {response.text[:200]}"
+            )
+
+        payload = response.json()
+        points = self._extract_hourly_temperature_points(payload)
+        if points:
+            return points
+
+        if self._allow_stub_data:
+            _LOGGER.warning("Unexpected hourly temperature API payload shape, falling back to stub data")
+            return self._build_stub_hourly_temperature_points(start_date, end_date)
+
+        raise VattenfallApiError("Unexpected hourly temperature API payload shape; no points extracted")
 
     def _extract_session_data_key(self) -> str:
         """Extract `sessionDataKey` from `sessionNonceCookie-<key>` cookie name."""
@@ -643,6 +738,39 @@ class VattenfallApiClient:
         points.sort(key=lambda p: p.date_time)
         return points
 
+    def _extract_hourly_temperature_points(self, payload: Any) -> list[HourlyTemperaturePoint]:
+        """Extract hourly temperature points from API response payload."""
+        raw_points: list[dict[str, Any]] = []
+        if isinstance(payload, dict) and isinstance(payload.get("temperatures"), list):
+            raw_points = [
+                item for item in payload["temperatures"] if isinstance(item, dict)
+            ]
+        else:
+            raw_points = self._flatten_points(payload)
+
+        points: list[HourlyTemperaturePoint] = []
+        for item in raw_points:
+            date_time = item.get("date")
+            if date_time is None:
+                date_time = item.get("Date")
+
+            value = item.get("value")
+            if value is None:
+                value = item.get("Value")
+            try:
+                if date_time is not None and value is not None:
+                    points.append(
+                        HourlyTemperaturePoint(
+                            date_time=str(date_time),
+                            value_c=float(value),
+                        )
+                    )
+            except (TypeError, ValueError):
+                continue
+
+        points.sort(key=lambda p: p.date_time)
+        return points
+
     def _flatten_points(self, payload: Any) -> list[dict[str, Any]]:
         """Flatten known/unknown payload shapes into a list of dict points."""
         if isinstance(payload, list):
@@ -705,6 +833,37 @@ class VattenfallApiClient:
                     date_time=dt.isoformat(),
                     value_kwh=round(value, 3),
                     status="012",
+                )
+            )
+            dt += timedelta(hours=1)
+
+        return points
+
+    def _build_stub_hourly_temperature_points(
+        self, start_date: date, end_date: date
+    ) -> list[HourlyTemperaturePoint]:
+        """Build deterministic hourly temperature stub data for development/testing."""
+        points: list[HourlyTemperaturePoint] = []
+        dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time()).replace(
+            minute=0, second=0, microsecond=0
+        )
+
+        while dt <= end_dt:
+            # Simple diurnal curve with day-by-day variation.
+            base = 3.0 + ((dt.day % 6) * 0.8)
+            if 0 <= dt.hour <= 5:
+                diurnal = -2.2
+            elif 6 <= dt.hour <= 8:
+                diurnal = 0.0
+            elif 12 <= dt.hour <= 16:
+                diurnal = 4.1
+            else:
+                diurnal = 1.4
+            points.append(
+                HourlyTemperaturePoint(
+                    date_time=dt.isoformat(),
+                    value_c=round(base + diurnal, 1),
                 )
             )
             dt += timedelta(hours=1)

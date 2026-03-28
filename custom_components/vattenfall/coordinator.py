@@ -19,6 +19,9 @@ from .const import (
     ATTR_HOURLY_START_DATE,
     ATTR_POINTS,
     ATTR_START_DATE,
+    ATTR_TEMPERATURE_END_DATE,
+    ATTR_TEMPERATURE_POINTS,
+    ATTR_TEMPERATURE_START_DATE,
     DEFAULT_SCAN_INTERVAL,
 )
 
@@ -55,6 +58,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 daily_end=end_date,
                 hourly_start=hourly_start,
                 hourly_end=hourly_end,
+                temperature_start=hourly_start,
+                temperature_end=hourly_end,
             )
         except VattenfallApiError as err:
             raise UpdateFailed(f"Failed to fetch data from Vattenfall API: {err}") from err
@@ -76,6 +81,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 daily_end=end_date,
                 hourly_start=None,
                 hourly_end=None,
+                temperature_start=None,
+                temperature_end=None,
             )
             data.update(partial)
 
@@ -85,6 +92,19 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 daily_end=None,
                 hourly_start=start_date,
                 hourly_end=end_date,
+                temperature_start=None,
+                temperature_end=None,
+            )
+            data.update(partial)
+
+        if mode in ("temperature", "both"):
+            partial = await self._async_build_data(
+                daily_start=None,
+                daily_end=None,
+                hourly_start=None,
+                hourly_end=None,
+                temperature_start=start_date,
+                temperature_end=end_date,
             )
             data.update(partial)
 
@@ -100,6 +120,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         daily_end: date | None,
         hourly_start: date | None,
         hourly_end: date | None,
+        temperature_start: date | None,
+        temperature_end: date | None,
     ) -> dict[str, Any]:
         """Build coordinator data payload for selected daily/hourly ranges."""
         data: dict[str, Any] = {}
@@ -155,6 +177,43 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ATTR_HOURLY_START_DATE: hourly_start.isoformat(),
                     ATTR_HOURLY_END_DATE: hourly_end.isoformat(),
                     ATTR_HOURLY_POINTS: [asdict(point) for point in hourly_points],
+                }
+            )
+
+        if temperature_start is not None and temperature_end is not None:
+            temperature_points = await self.client.async_get_hourly_temperature(
+                temperature_start, temperature_end, use_cet=True
+            )
+            selected_day_iso = temperature_end.isoformat()
+            selected_day_temp_points = [
+                p for p in temperature_points if p.date_time.startswith(selected_day_iso)
+            ]
+            selected_day_temp_values = [p.value_c for p in selected_day_temp_points]
+
+            latest_temperature_c = (
+                temperature_points[-1].value_c if temperature_points else None
+            )
+            today_avg_temperature_c = (
+                round(sum(selected_day_temp_values) / len(selected_day_temp_values), 2)
+                if selected_day_temp_values
+                else None
+            )
+            today_min_temperature_c = (
+                round(min(selected_day_temp_values), 2) if selected_day_temp_values else None
+            )
+            today_max_temperature_c = (
+                round(max(selected_day_temp_values), 2) if selected_day_temp_values else None
+            )
+
+            data.update(
+                {
+                    "latest_temperature_c": latest_temperature_c,
+                    "today_avg_temperature_c": today_avg_temperature_c,
+                    "today_min_temperature_c": today_min_temperature_c,
+                    "today_max_temperature_c": today_max_temperature_c,
+                    ATTR_TEMPERATURE_START_DATE: temperature_start.isoformat(),
+                    ATTR_TEMPERATURE_END_DATE: temperature_end.isoformat(),
+                    ATTR_TEMPERATURE_POINTS: [asdict(point) for point in temperature_points],
                 }
             )
 
