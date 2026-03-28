@@ -18,9 +18,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ATTR_END_DATE,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
+    ATTR_POINTS,
+    ATTR_START_DATE,
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
@@ -186,15 +189,21 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional state attributes."""
+        daily_points = self.coordinator.data.get(ATTR_POINTS, [])
+        hourly_points = self.coordinator.data.get(ATTR_HOURLY_POINTS, [])
+        temperature_points = self.coordinator.data.get(ATTR_TEMPERATURE_POINTS, [])
         return {
-            "start_date": self.coordinator.data.get("start_date"),
-            "end_date": self.coordinator.data.get("end_date"),
-            "points": self.coordinator.data.get("points", []),
+            "start_date": self.coordinator.data.get(ATTR_START_DATE),
+            "end_date": self.coordinator.data.get(ATTR_END_DATE),
+            "daily_points_count": len(daily_points),
             "hourly_start_date": self.coordinator.data.get(ATTR_HOURLY_START_DATE),
             "hourly_end_date": self.coordinator.data.get(ATTR_HOURLY_END_DATE),
-            "hourly_points": self.coordinator.data.get(ATTR_HOURLY_POINTS, []),
+            "hourly_points_count": len(hourly_points),
             "temperature_start_date": self.coordinator.data.get(ATTR_TEMPERATURE_START_DATE),
             "temperature_end_date": self.coordinator.data.get(ATTR_TEMPERATURE_END_DATE),
-            "temperature_points": self.coordinator.data.get(ATTR_TEMPERATURE_POINTS, []),
+            "temperature_points_count": len(temperature_points),
             "today_peak_hour_time": self.coordinator.data.get("today_peak_hour_time"),
+            "backfill_mode": self.coordinator.data.get("backfill_mode"),
+            "backfill_start_date": self.coordinator.data.get("backfill_start_date"),
+            "backfill_end_date": self.coordinator.data.get("backfill_end_date"),
         }
