@@ -20,9 +20,10 @@ jobs:
 
       - name: Set version in manifest.json
         run: |
-          version="${GITHUB_REF#refs/tags/v}"
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
           echo "Setting version to ${version}"
-          sed -i -E "s/\"version\": \"[^\"]+\"/\"version\": \"${version}\"/" ${INTEGRATION_PATH}/manifest.json
+          sed -i -E "s|\"version\": \"[^\"]+\"|\"version\": \"${version}\"|" ${INTEGRATION_PATH}/manifest.json
 
       - name: Zip
         run: |
