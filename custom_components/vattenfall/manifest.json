@@ -14,5 +14,8 @@
   "requirements": [
     "httpx[http2]==0.28.1"
   ],
+  "after_dependencies": [
+    "recorder"
+  ],
   "version": "0.1.0"
 }
