@@ -49,10 +49,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL):
+        async def _handle_backfill(call: ServiceCall) -> None:
+            """Async wrapper so Home Assistant awaits the backfill coroutine."""
+            await _async_handle_backfill_service(hass, call)
+
         hass.services.async_register(
             DOMAIN,
             SERVICE_BACKFILL,
-            lambda call: _async_handle_backfill_service(hass, call),
+            _handle_backfill,
             schema=BACKFILL_SERVICE_SCHEMA,
         )
 
