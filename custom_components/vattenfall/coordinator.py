@@ -248,7 +248,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Write fetched data points as external statistics into the HA recorder."""
         # Lazy imports to avoid loading recorder at module level (breaks test stubs)
-        from homeassistant.components.recorder.models import StatisticData, StatisticMetaData  # noqa: PLC0415
+        from homeassistant.components.recorder.models import StatisticData, StatisticMeanType, StatisticMetaData  # noqa: PLC0415
         from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
         from homeassistant.const import UnitOfEnergy, UnitOfTemperature  # noqa: PLC0415
 
@@ -272,6 +272,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             metadata = StatisticMetaData(
                 has_mean=False,
                 has_sum=True,
+                mean_type=StatisticMeanType.NONE,
                 name=f"Vattenfall Daily Consumption {metering_point_id}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
@@ -295,6 +296,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             metadata = StatisticMetaData(
                 has_mean=False,
                 has_sum=True,
+                mean_type=StatisticMeanType.NONE,
                 name=f"Vattenfall Hourly Consumption {metering_point_id}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
@@ -317,6 +319,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             metadata = StatisticMetaData(
                 has_mean=True,
                 has_sum=False,
+                mean_type=StatisticMeanType.ARITHMETIC,
                 name=f"Vattenfall Outdoor Temperature {temperature_area_code}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
