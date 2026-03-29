@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import logging
@@ -30,6 +31,9 @@ _COMMONAUTH_URL = "https://accounts.vattenfall.com/iamng/seb2c/dso/commonauth"
 _SESSION_NONCE_PREFIX = "sessionNonceCookie-"
 _WEB_ORIGIN = "https://www.vattenfalleldistribution.se"
 _ACCOUNTS_ORIGIN = "https://accounts.vattenfall.com"
+_MAX_SERVER_ERROR_RETRIES = 3
+_RETRY_DELAY_S = 2.0
+
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
@@ -306,13 +310,37 @@ class VattenfallApiClient:
         if not self._has_auth_cookies:
             raise VattenfallAuthError("Authentication completed without API cookies")
 
+    async def _async_get_with_retry(
+        self,
+        endpoint: str,
+        headers: dict[str, str],
+        cookies: dict[str, str],
+        label: str,
+    ) -> httpx.Response:
+        """Make a GET request, retrying on 5xx server errors."""
+        client = await self._async_get_client()
+        response: httpx.Response | None = None
+        for attempt in range(1, _MAX_SERVER_ERROR_RETRIES + 1):
+            self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
+            response = await client.get(
+                endpoint, headers=headers, cookies=cookies, follow_redirects=False
+            )
+            self._debug_log_response(label, response)
+            if response.status_code < 500 or attempt == _MAX_SERVER_ERROR_RETRIES:
+                break
+            _LOGGER.warning(
+                "Vattenfall API returned HTTP %d for %s (attempt %d/%d), retrying in %.1fs",
+                response.status_code, label, attempt, _MAX_SERVER_ERROR_RETRIES, _RETRY_DELAY_S,
+            )
+            await asyncio.sleep(_RETRY_DELAY_S)
+        return response  # type: ignore[return-value]
+
     async def _async_fetch_daily_consumption(
         self,
         start_date: date,
         end_date: date,
     ) -> list[ConsumptionPoint]:
         """Fetch daily measured consumption from Vattenfall API."""
-        client = await self._async_get_client()
         endpoint = (
             f"{self._base_url}/consumption/consumption/"
             f"{self._metering_point_id}/{start_date}/{end_date}/Daily/Measured"
@@ -336,14 +364,7 @@ class VattenfallApiClient:
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
             raise VattenfallAuthError("Missing API auth cookies before consumption request")
 
-        self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
-        response = await client.get(
-            endpoint,
-            headers=headers,
-            cookies=cookies,
-            follow_redirects=False,
-        )
-        self._debug_log_response("consumption", response)
+        response = await self._async_get_with_retry(endpoint, headers, cookies, "consumption")
 
         if response.status_code in (401, 403):
             raise VattenfallAuthError(
@@ -374,7 +395,6 @@ class VattenfallApiClient:
         include_load: bool,
     ) -> list[HourlyConsumptionPoint]:
         """Fetch hourly measured consumption from Vattenfall API."""
-        client = await self._async_get_client()
         endpoint = (
             f"{self._base_url}/consumption/consumption/"
             f"{self._metering_point_id}/{start_date}/{end_date}/Hourly/Measured"
@@ -399,14 +419,7 @@ class VattenfallApiClient:
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
             raise VattenfallAuthError("Missing API auth cookies before hourly consumption request")
 
-        self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
-        response = await client.get(
-            endpoint,
-            headers=headers,
-            cookies=cookies,
-            follow_redirects=False,
-        )
-        self._debug_log_response("hourly_consumption", response)
+        response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_consumption")
 
         if response.status_code in (401, 403):
             raise VattenfallAuthError(
@@ -436,7 +449,6 @@ class VattenfallApiClient:
         use_cet: bool,
     ) -> list[HourlyTemperaturePoint]:
         """Fetch hourly temperature from Vattenfall API."""
-        client = await self._async_get_client()
         endpoint = (
             f"{self._base_url}/climate/temperature/{self._temperature_area_code}/"
             f"Hourly/{start_date}/{end_date}?useCet={'true' if use_cet else 'false'}"
@@ -460,14 +472,7 @@ class VattenfallApiClient:
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
             raise VattenfallAuthError("Missing API auth cookies before hourly temperature request")
 
-        self._debug_log_request("GET", endpoint, headers=headers, cookies=cookies)
-        response = await client.get(
-            endpoint,
-            headers=headers,
-            cookies=cookies,
-            follow_redirects=False,
-        )
-        self._debug_log_response("hourly_temperature", response)
+        response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_temperature")
 
         if response.status_code in (401, 403):
             raise VattenfallAuthError(
