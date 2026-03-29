@@ -352,7 +352,7 @@ class VattenfallApiClient:
             )
         if response.status_code >= 400:
             raise VattenfallApiError(
-                f"Vattenfall API returned HTTP {response.status_code} when fetching daily consumption: {response.text[:200]}"
+                f"Vattenfall API returned HTTP {response.status_code} when fetching daily consumption: {response.text[:200] or '<empty response body>'}"
             )
 
         payload = response.json()
@@ -415,7 +415,7 @@ class VattenfallApiClient:
             )
         if response.status_code >= 400:
             raise VattenfallApiError(
-                f"Vattenfall API returned HTTP {response.status_code} when fetching hourly consumption: {response.text[:200]}"
+                f"Vattenfall API returned HTTP {response.status_code} when fetching hourly consumption: {response.text[:200] or '<empty response body>'}"
             )
 
         payload = response.json()
@@ -476,7 +476,7 @@ class VattenfallApiClient:
             )
         if response.status_code >= 400:
             raise VattenfallApiError(
-                f"Vattenfall API returned HTTP when fetching hourly temperature {response.status_code}: {response.text[:200]}"
+                f"Vattenfall API returned HTTP {response.status_code} when fetching hourly temperature: {response.text[:200] or '<empty response body>'}"
             )
 
         payload = response.json()
