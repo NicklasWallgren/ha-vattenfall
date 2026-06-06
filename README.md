@@ -1,6 +1,10 @@
 # Vattenfall Home Assistant integration
 
-Custom integration for Home Assistant that retrieves electricity consumption from Vattenfall and exposes sensors for dashboards, Energy, and automations.
+Custom integration for Home Assistant that retrieves electricity consumption from Vattenfall and exposes sensors for
+dashboards, Energy, and automations.
+
+> **Note:** This integration only works with Vattenfall Eldistribution in Sweden (`vattenfalleldistribution.se`). It is
+> not compatible with Vattenfall in other countries.
 
 ## Features
 
