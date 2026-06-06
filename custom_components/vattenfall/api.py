@@ -371,6 +371,10 @@ class VattenfallApiClient:
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
             )
+        if response.status_code == 500 and not response.text.strip():
+            raise VattenfallAuthError(
+                "Vattenfall API returned HTTP 500 with empty body when fetching daily consumption — likely expired session"
+            )
         if response.status_code >= 400:
             raise VattenfallApiError(
                 f"Vattenfall API returned HTTP {response.status_code} when fetching daily consumption: {response.text[:200] or '<empty response body>'}"
@@ -426,6 +430,10 @@ class VattenfallApiClient:
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
             )
+        if response.status_code == 500 and not response.text.strip():
+            raise VattenfallAuthError(
+                "Vattenfall API returned HTTP 500 with empty body when fetching hourly consumption — likely expired session"
+            )
         if response.status_code >= 400:
             raise VattenfallApiError(
                 f"Vattenfall API returned HTTP {response.status_code} when fetching hourly consumption: {response.text[:200] or '<empty response body>'}"
@@ -478,6 +486,10 @@ class VattenfallApiClient:
             raise VattenfallAuthError(
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
+            )
+        if response.status_code == 500 and not response.text.strip():
+            raise VattenfallAuthError(
+                "Vattenfall API returned HTTP 500 with empty body when fetching hourly temperature — likely expired session"
             )
         if response.status_code >= 400:
             raise VattenfallApiError(
