@@ -251,6 +251,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from homeassistant.components.recorder.models import StatisticData, StatisticMeanType, StatisticMetaData  # noqa: PLC0415
         from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
         from homeassistant.const import UnitOfEnergy, UnitOfTemperature  # noqa: PLC0415
+        from homeassistant.util.unit_conversion import EnergyConverter, TemperatureConverter  # noqa: PLC0415
 
         metering_point_id: str = self.entry.data[CONF_METERING_POINT_ID]
         statistic_prefix = metering_point_id.lower()
@@ -276,6 +277,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 name=f"Vattenfall Daily Consumption {metering_point_id}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
+                unit_class=EnergyConverter.UNIT_CLASS,
                 unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             )
             async_add_external_statistics(self.hass, metadata, stats)
@@ -300,6 +302,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 name=f"Vattenfall Hourly Consumption {metering_point_id}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
+                unit_class=EnergyConverter.UNIT_CLASS,
                 unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             )
             async_add_external_statistics(self.hass, metadata, stats)
@@ -323,6 +326,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 name=f"Vattenfall Outdoor Temperature {temperature_area_code}",
                 source=DOMAIN,
                 statistic_id=statistic_id,
+                unit_class=TemperatureConverter.UNIT_CLASS,
                 unit_of_measurement=UnitOfTemperature.CELSIUS,
             )
             async_add_external_statistics(self.hass, metadata, stats)
