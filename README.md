@@ -65,31 +65,44 @@ Install this integration with the following button:
    - `Subscription key`
    - `Temperature area code` (defaults to `14132`)
 
+### Getting a subscription key
+
+The integration authenticates against Vattenfall's API, which requires an Azure API Management
+`Ocp-Apim-Subscription-Key` header. This key isn't issued anywhere in account self-service — the web portal's
+frontend uses it internally. You can retrieve it yourself using your browser's developer tools (see
+[issue #1](https://github.com/NicklasWallgren/ha-vattenfall/issues/1)):
+
+1. Log in to [vattenfalleldistribution.se](https://vattenfalleldistribution.se) in your browser.
+2. Open developer tools (`F12`) and switch to the `Network` tab.
+3. Browse to your consumption data so the page makes API requests.
+4. Find a request to the Vattenfall API and inspect its request headers.
+5. Copy the value of the `Ocp-Apim-Subscription-Key` header — this is your `Subscription key`.
+
 ## Notes
 
 - The integration is configured to update consumption data every hour.
 - Runtime dependency `httpx[http2]` is declared in `manifest.json` and installed by Home Assistant.
 - Debug logs can include sensitive data (credentials/cookies/tokens). Do not share raw debug output.
 
-## Backfill service
+## Backfill action
 
-You can backfill historical consumption data from Home Assistant using the custom service:
+You can backfill historical consumption data from Home Assistant using the custom action:
 
-- Service: `vattenfall.backfill`
+- Action: `vattenfall.backfill`
 - Fields:
   - `start_date` (required, `YYYY-MM-DD`)
   - `end_date` (required, `YYYY-MM-DD`)
-  - `mode` (optional: `daily`, `hourly`, `temperature`, `both`, default `both`)
+  - `mode` (optional: `daily`, `hourly`, `temperature`, `all`, default `all`)
   - `entry_id` (optional: target one specific config entry)
 
-Example call in Developer Tools -> Services:
+Example call in `Settings` -> `Tools` -> `Actions` (previously `Developer Tools` -> `Services`):
 
 ```yaml
-service: vattenfall.backfill
+action: vattenfall.backfill
 data:
-  start_date: "2026-03-01"
-  end_date: "2026-03-27"
-  mode: both
+  start_date: "2025-04-11"
+  end_date: "2026-08-18"
+  mode: all
 ```
 
 ## Development
