@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import zoneinfo
 from collections import Counter
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
-import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
-import zoneinfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -123,7 +123,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hourly_end = date.today()
             # Vattenfall publishes about once a day, so yesterday may still be missing.
             hourly_start = hourly_end - timedelta(days=2)
-            return await self._async_build_data(
+            data = await self._async_build_data(
                 daily_start=month_start,
                 daily_end=end_date,
                 hourly_start=hourly_start,
@@ -131,10 +131,25 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temperature_start=hourly_start,
                 temperature_end=hourly_end,
             )
+            data.update(await self._async_fetch_contract_data())
+            return data
         except VattenfallAccessDeniedError as err:
-            raise ConfigEntryAuthFailed(f"Vattenfall rejected the login: {err}") from err
+            raise ConfigEntryAuthFailed(
+                f"Vattenfall rejected the login: {err}"
+            ) from err
         except VattenfallApiError as err:
-            raise UpdateFailed(f"Failed to fetch data from Vattenfall API: {err}") from err
+            raise UpdateFailed(
+                f"Failed to fetch data from Vattenfall API: {err}"
+            ) from err
+
+    async def _async_fetch_contract_data(self) -> dict[str, Any]:
+        """Fetch contract tariff/fee details and expose them as data keys."""
+        tariff = await self.client.async_get_contract()
+        return {
+            "transfer_fee_incl_vat": tariff.transfer_fee_incl_vat,
+            "energy_tax_incl_vat": tariff.energy_tax_incl_vat,
+            "fixed_fee_incl_vat_incl_discount": tariff.fixed_fee_incl_vat_incl_discount,
+        }
 
     async def async_backfill_range(
         self,
@@ -146,7 +161,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if end_date < start_date:
             raise ValueError("end_date must be on or after start_date")
         if end_date >= date.today():
-            raise ValueError("end_date must be before today; cannot backfill future data")
+            raise ValueError(
+                "end_date must be before today; cannot backfill future data"
+            )
 
         chunks = _date_range_chunks(start_date, end_date)
 
@@ -160,7 +177,12 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     chunk_start, chunk_end, allow_stub=False
                 )
                 daily_points.extend(chunk)
-                _LOGGER.debug("Fetched daily chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
+                _LOGGER.debug(
+                    "Fetched daily chunk %s–%s (%d points)",
+                    chunk_start,
+                    chunk_end,
+                    len(chunk),
+                )
 
         if mode in ("hourly", "all"):
             for chunk_start, chunk_end in chunks:
@@ -168,7 +190,12 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     chunk_start, chunk_end, include_load=True, allow_stub=False
                 )
                 hourly_points.extend(chunk)
-                _LOGGER.debug("Fetched hourly chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
+                _LOGGER.debug(
+                    "Fetched hourly chunk %s–%s (%d points)",
+                    chunk_start,
+                    chunk_end,
+                    len(chunk),
+                )
 
         if mode in ("temperature", "all"):
             for chunk_start, chunk_end in chunks:
@@ -176,10 +203,17 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     chunk_start, chunk_end, use_cet=True, allow_stub=False
                 )
                 temperature_points.extend(chunk)
-                _LOGGER.debug("Fetched temperature chunk %s–%s (%d points)", chunk_start, chunk_end, len(chunk))
+                _LOGGER.debug(
+                    "Fetched temperature chunk %s–%s (%d points)",
+                    chunk_start,
+                    chunk_end,
+                    len(chunk),
+                )
 
         if daily_points or hourly_points or temperature_points:
-            await self._async_write_statistics(daily_points, hourly_points, temperature_points)
+            await self._async_write_statistics(
+                daily_points, hourly_points, temperature_points
+            )
 
         # Restore sensors to current data after backfill
         await self.async_request_refresh()
@@ -199,7 +233,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if daily_start is not None and daily_end is not None:
             builders["daily"] = lambda: self._async_build_daily(daily_start, daily_end)
         if hourly_start is not None and hourly_end is not None:
-            builders["hourly"] = lambda: self._async_build_hourly(hourly_start, hourly_end)
+            builders["hourly"] = lambda: self._async_build_hourly(
+                hourly_start, hourly_end
+            )
         if temperature_start is not None and temperature_end is not None:
             builders["temperature"] = lambda: self._async_build_temperature(
                 temperature_start, temperature_end
@@ -216,7 +252,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except VattenfallApiError as err:
                 errors[group] = err
                 if group not in previously_failed:
-                    _LOGGER.warning("Could not fetch Vattenfall %s data: %s", group, err)
+                    _LOGGER.warning(
+                        "Could not fetch Vattenfall %s data: %s", group, err
+                    )
             else:
                 if group in previously_failed:
                     _LOGGER.info("Vattenfall %s data is available again", group)
@@ -227,9 +265,13 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[ATTR_FAILED_GROUPS] = set(errors)
         return data
 
-    async def _async_build_daily(self, daily_start: date, daily_end: date) -> dict[str, Any]:
+    async def _async_build_daily(
+        self, daily_start: date, daily_end: date
+    ) -> dict[str, Any]:
         """Build the daily consumption part of the coordinator data."""
-        daily_points = await self.client.async_get_daily_consumption(daily_start, daily_end)
+        daily_points = await self.client.async_get_daily_consumption(
+            daily_start, daily_end
+        )
         daily_values = [point.value_kwh for point in daily_points]
 
         latest_day_kwh = daily_values[-1] if daily_values else 0.0
@@ -240,7 +282,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return {
             "latest_day_kwh": latest_day_kwh,
-            "latest_day_reset": _day_start(daily_points[-1].date) if daily_points else None,
+            "latest_day_reset": _day_start(daily_points[-1].date)
+            if daily_points
+            else None,
             "month_to_date_reset": _day_start(daily_start.isoformat()),
             "month_to_date_kwh": month_to_date_kwh,
             "average_daily_kwh": avg_daily_kwh,
@@ -249,7 +293,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ATTR_POINTS: [asdict(point) for point in daily_points],
         }
 
-    async def _async_build_hourly(self, hourly_start: date, hourly_end: date) -> dict[str, Any]:
+    async def _async_build_hourly(
+        self, hourly_start: date, hourly_end: date
+    ) -> dict[str, Any]:
         """Build the hourly consumption part of the coordinator data."""
         hourly_points = await self.client.async_get_hourly_consumption(
             hourly_start, hourly_end, include_load=True
@@ -257,13 +303,19 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         hourly_values = [point.value_kwh for point in hourly_points]
         latest_hour_kwh = hourly_values[-1] if hourly_values else 0.0
 
-        latest_day = _latest_day([p.date_time for p in hourly_points], before=hourly_end)
+        latest_day = _latest_day(
+            [p.date_time for p in hourly_points], before=hourly_end
+        )
         latest_day_points = [
-            p for p in hourly_points if latest_day and p.date_time.startswith(latest_day)
+            p
+            for p in hourly_points
+            if latest_day and p.date_time.startswith(latest_day)
         ]
         latest_day_values = [p.value_kwh for p in latest_day_points]
 
-        latest_day_total_kwh = round(sum(latest_day_values), 3) if latest_day_values else None
+        latest_day_total_kwh = (
+            round(sum(latest_day_values), 3) if latest_day_values else None
+        )
         latest_day_peak_hour_kwh = (
             round(max(latest_day_values), 3) if latest_day_values else None
         )
@@ -293,7 +345,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ATTR_HOURLY_POINTS: [asdict(point) for point in hourly_points],
         }
 
-    async def _async_build_temperature(self, temperature_start: date, temperature_end: date) -> dict[str, Any]:
+    async def _async_build_temperature(
+        self, temperature_start: date, temperature_end: date
+    ) -> dict[str, Any]:
         """Build the temperature part of the coordinator data."""
         temperature_points = await self.client.async_get_hourly_temperature(
             temperature_start, temperature_end, use_cet=True
@@ -316,10 +370,14 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else None
         )
         today_min_temperature_c = (
-            round(min(selected_day_temp_values), 2) if selected_day_temp_values else None
+            round(min(selected_day_temp_values), 2)
+            if selected_day_temp_values
+            else None
         )
         today_max_temperature_c = (
-            round(max(selected_day_temp_values), 2) if selected_day_temp_values else None
+            round(max(selected_day_temp_values), 2)
+            if selected_day_temp_values
+            else None
         )
 
         return {
@@ -341,10 +399,19 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Write fetched data points as external statistics into the HA recorder."""
         # Lazy imports to avoid loading recorder at module level (breaks test stubs)
-        from homeassistant.components.recorder.models import StatisticData, StatisticMeanType, StatisticMetaData  # noqa: PLC0415
-        from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
+        from homeassistant.components.recorder.models import (  # noqa: PLC0415
+            StatisticData,
+            StatisticMeanType,
+            StatisticMetaData,
+        )
+        from homeassistant.components.recorder.statistics import (
+            async_add_external_statistics,  # noqa: PLC0415
+        )
         from homeassistant.const import UnitOfEnergy, UnitOfTemperature  # noqa: PLC0415
-        from homeassistant.util.unit_conversion import EnergyConverter, TemperatureConverter  # noqa: PLC0415
+        from homeassistant.util.unit_conversion import (  # noqa: PLC0415
+            EnergyConverter,
+            TemperatureConverter,
+        )
 
         metering_point_id: str = self.entry.data[CONF_METERING_POINT_ID]
         statistic_prefix = metering_point_id.lower()
@@ -353,7 +420,10 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             statistic_id = f"{DOMAIN}:daily_consumption_{statistic_prefix}"
             stats = await self._async_merged_sum_statistics(
                 statistic_id,
-                {_day_start(point.date).timestamp(): point.value_kwh for point in daily_points},
+                {
+                    _day_start(point.date).timestamp(): point.value_kwh
+                    for point in daily_points
+                },
             )
 
             metadata = StatisticMetaData(
@@ -371,7 +441,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if hourly_points:
             statistic_id = f"{DOMAIN}:hourly_consumption_{statistic_prefix}"
-            timestamps = _hourly_timestamps([point.date_time for point in hourly_points])
+            timestamps = _hourly_timestamps(
+                [point.date_time for point in hourly_points]
+            )
             stats = await self._async_merged_sum_statistics(
                 statistic_id,
                 {ts: point.value_kwh for ts, point in zip(timestamps, hourly_points)},
@@ -391,14 +463,20 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Wrote %d hourly statistics for %s", len(stats), statistic_id)
 
         if temperature_points:
-            temperature_area_code: str = str(self.entry.data.get(
-                CONF_TEMPERATURE_AREA_CODE, DEFAULT_TEMPERATURE_AREA_CODE
-            )).lower()
+            temperature_area_code: str = str(
+                self.entry.data.get(
+                    CONF_TEMPERATURE_AREA_CODE, DEFAULT_TEMPERATURE_AREA_CODE
+                )
+            ).lower()
             statistic_id = f"{DOMAIN}:temperature_{temperature_area_code}"
 
-            timestamps = _hourly_timestamps([point.date_time for point in temperature_points])
+            timestamps = _hourly_timestamps(
+                [point.date_time for point in temperature_points]
+            )
             stats = [
-                StatisticData(start=datetime.fromtimestamp(ts, timezone.utc), mean=point.value_c)
+                StatisticData(
+                    start=datetime.fromtimestamp(ts, timezone.utc), mean=point.value_c
+                )
                 for ts, point in zip(timestamps, temperature_points)
             ]
 
@@ -413,7 +491,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 unit_of_measurement=UnitOfTemperature.CELSIUS,
             )
             async_add_external_statistics(self.hass, metadata, stats)
-            _LOGGER.debug("Wrote %d temperature statistics for %s", len(stats), statistic_id)
+            _LOGGER.debug(
+                "Wrote %d temperature statistics for %s", len(stats), statistic_id
+            )
 
     async def _async_merged_sum_statistics(
         self, statistic_id: str, new_values: dict[float, float]
@@ -425,7 +505,9 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         from homeassistant.components.recorder import get_instance  # noqa: PLC0415
         from homeassistant.components.recorder.models import StatisticData  # noqa: PLC0415
-        from homeassistant.components.recorder.statistics import statistics_during_period  # noqa: PLC0415
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,  # noqa: PLC0415
+        )
 
         existing = await get_instance(self.hass).async_add_executor_job(
             statistics_during_period,

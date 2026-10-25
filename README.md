@@ -22,6 +22,9 @@ dashboards, Energy, and automations.
   - Latest day average temperature
   - Latest day minimum temperature
   - Latest day maximum temperature
+  - Transfer fee incl. VAT (per kWh)
+  - Energy tax incl. VAT (per kWh)
+  - Fixed fee incl. VAT incl. discount
 - HACS compatible
 
 ## Installation

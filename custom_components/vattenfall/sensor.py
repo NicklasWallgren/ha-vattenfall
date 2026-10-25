@@ -165,6 +165,36 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         icon="mdi:thermometer-high",
         attribute_group="temperature",
     ),
+    VattenfallSensorEntityDescription(
+        key="transfer_fee",
+        translation_key="transfer_fee",
+        name="Transfer fee incl. VAT",
+        native_unit_of_measurement="SEK/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="transfer_fee_incl_vat",
+        icon="mdi:transmission-tower",
+        attribute_group="contract",
+    ),
+    VattenfallSensorEntityDescription(
+        key="energy_tax",
+        translation_key="energy_tax",
+        name="Energy tax incl. VAT",
+        native_unit_of_measurement="SEK/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="energy_tax_incl_vat",
+        icon="mdi:cash",
+        attribute_group="contract",
+    ),
+    VattenfallSensorEntityDescription(
+        key="fixed_fee",
+        translation_key="fixed_fee",
+        name="Fixed fee incl. VAT incl. discount",
+        native_unit_of_measurement="SEK",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="fixed_fee_incl_vat_incl_discount",
+        icon="mdi:cash-multiple",
+        attribute_group="contract",
+    ),
 )
 
 
@@ -185,7 +215,9 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], SensorEntity):
+class VattenfallSensor(
+    CoordinatorEntity[VattenfallDataUpdateCoordinator], SensorEntity
+):
     """Representation of a Vattenfall sensor."""
 
     entity_description: VattenfallSensorEntityDescription

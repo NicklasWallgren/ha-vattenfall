@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
 import logging
 import re
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, TypeVar
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -41,7 +41,9 @@ _DEFAULT_USER_AGENT = (
 )
 
 
-_SUBSCRIPTION_KEY_META = re.compile(r'<meta\s+name="subscription-key"\s+content="([0-9a-fA-F]{32})"')
+_SUBSCRIPTION_KEY_META = re.compile(
+    r'<meta\s+name="subscription-key"\s+content="([0-9a-fA-F]{32})"'
+)
 
 _T = TypeVar("_T")
 
@@ -98,7 +100,9 @@ async def async_fetch_subscription_key(client: httpx.AsyncClient) -> str:
             timeout=30.0,
         )
     except httpx.HTTPError as err:
-        raise VattenfallApiError(f"Network error while reading subscription key: {err}") from err
+        raise VattenfallApiError(
+            f"Network error while reading subscription key: {err}"
+        ) from err
 
     match = _SUBSCRIPTION_KEY_META.search(response.text)
     if match is None:
@@ -106,6 +110,15 @@ async def async_fetch_subscription_key(client: httpx.AsyncClient) -> str:
             f"No subscription key on Vattenfall's website (HTTP {response.status_code})"
         )
     return match.group(1)
+
+
+@dataclass(slots=True)
+class ContractTariff:
+    """Tariff/fee details from the contract endpoint."""
+
+    transfer_fee_incl_vat: float | None
+    energy_tax_incl_vat: float | None
+    fixed_fee_incl_vat_incl_discount: float | None
 
 
 class VattenfallApiClient:
@@ -135,7 +148,9 @@ class VattenfallApiClient:
             return self._client
 
         if hasattr(self._hass, "async_add_executor_job"):
-            self._client = await self._hass.async_add_executor_job(self._create_httpx_client)
+            self._client = await self._hass.async_add_executor_job(
+                self._create_httpx_client
+            )
         else:
             # Fallback for standalone test scripts where hass is a stub object.
             self._client = self._create_httpx_client()
@@ -156,7 +171,9 @@ class VattenfallApiClient:
         try:
             await self._async_login_flow()
         except httpx.HTTPError as err:
-            raise VattenfallApiError(f"Network error during authentication: {err}") from err
+            raise VattenfallApiError(
+                f"Network error during authentication: {err}"
+            ) from err
 
     async def async_get_daily_consumption(
         self,
@@ -199,7 +216,9 @@ class VattenfallApiClient:
         """Fetch hourly temperature from the API."""
         return await self._async_fetch_with_auth(
             "Hourly temperature",
-            lambda: self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet),
+            lambda: self._async_fetch_hourly_temperature(
+                start_date, end_date, use_cet=use_cet
+            ),
             lambda: self._build_stub_hourly_temperature_points(start_date, end_date),
             allow_stub,
         )
@@ -221,17 +240,45 @@ class VattenfallApiClient:
                 return await fetch()
         except (VattenfallApiError, httpx.HTTPError, ValueError) as err:
             if self._allow_stub_data and allow_stub:
-                _LOGGER.warning("%s fetch failed, falling back to stub data: %s", label, err)
+                _LOGGER.warning(
+                    "%s fetch failed, falling back to stub data: %s", label, err
+                )
                 return build_stub()
             if isinstance(err, VattenfallApiError):
                 raise
-            raise VattenfallApiError(f"Error while calling Vattenfall API: {err}") from err
+            raise VattenfallApiError(
+                f"Error while calling Vattenfall API: {err}"
+            ) from err
+
+    async def async_get_contract(self) -> ContractTariff:
+        """Fetch contract tariff/fee details from the API."""
+        try:
+            await self.async_authenticate()
+            return await self._async_fetch_contract()
+        except VattenfallAuthError:
+            await self.async_authenticate(force=True)
+            return await self._async_fetch_contract()
+        except (VattenfallApiError, httpx.HTTPError) as err:
+            if self._allow_stub_data:
+                _LOGGER.warning(
+                    "Contract fetch failed, falling back to stub data: %s", err
+                )
+                return self._build_stub_contract()
+            if isinstance(err, VattenfallApiError):
+                raise
+            raise VattenfallApiError(
+                f"Network error while calling Vattenfall API: {err}"
+            ) from err
 
     @property
     def _has_auth_cookies(self) -> bool:
         """Check if both API auth cookies are present."""
-        security_cookie = self._cookie_value("VF_SecurityCookie", domain_hint="vattenfalleldistribution.se")
-        access_cookie = self._cookie_value("VF_AccessCookie", domain_hint="vattenfalleldistribution.se")
+        security_cookie = self._cookie_value(
+            "VF_SecurityCookie", domain_hint="vattenfalleldistribution.se"
+        )
+        access_cookie = self._cookie_value(
+            "VF_AccessCookie", domain_hint="vattenfalleldistribution.se"
+        )
         return bool(security_cookie and access_cookie)
 
     async def _async_login_flow(self) -> None:
@@ -370,7 +417,11 @@ class VattenfallApiClient:
                 break
             _LOGGER.warning(
                 "Vattenfall API returned HTTP %d for %s (attempt %d/%d), retrying in %.1fs",
-                response.status_code, label, attempt, _MAX_SERVER_ERROR_RETRIES, _RETRY_DELAY_S,
+                response.status_code,
+                label,
+                attempt,
+                _MAX_SERVER_ERROR_RETRIES,
+                _RETRY_DELAY_S,
             )
             await asyncio.sleep(_RETRY_DELAY_S)
         return response  # type: ignore[return-value]
@@ -402,9 +453,13 @@ class VattenfallApiClient:
                 cookies[key] = value
 
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
-            raise VattenfallAuthError("Missing API auth cookies before consumption request")
+            raise VattenfallAuthError(
+                "Missing API auth cookies before consumption request"
+            )
 
-        response = await self._async_get_with_retry(endpoint, headers, cookies, "consumption")
+        response = await self._async_get_with_retry(
+            endpoint, headers, cookies, "consumption"
+        )
 
         if response.status_code in (401, 403):
             raise VattenfallAccessDeniedError(
@@ -457,9 +512,13 @@ class VattenfallApiClient:
                 cookies[key] = value
 
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
-            raise VattenfallAuthError("Missing API auth cookies before hourly consumption request")
+            raise VattenfallAuthError(
+                "Missing API auth cookies before hourly consumption request"
+            )
 
-        response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_consumption")
+        response = await self._async_get_with_retry(
+            endpoint, headers, cookies, "hourly_consumption"
+        )
 
         if response.status_code in (401, 403):
             raise VattenfallAccessDeniedError(
@@ -480,7 +539,9 @@ class VattenfallApiClient:
         if points:
             return points
 
-        raise VattenfallApiError("Unexpected hourly API payload shape; no points extracted")
+        raise VattenfallApiError(
+            "Unexpected hourly API payload shape; no points extracted"
+        )
 
     async def _async_fetch_hourly_temperature(
         self,
@@ -510,9 +571,13 @@ class VattenfallApiClient:
                 cookies[key] = value
 
         if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
-            raise VattenfallAuthError("Missing API auth cookies before hourly temperature request")
+            raise VattenfallAuthError(
+                "Missing API auth cookies before hourly temperature request"
+            )
 
-        response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_temperature")
+        response = await self._async_get_with_retry(
+            endpoint, headers, cookies, "hourly_temperature"
+        )
 
         if response.status_code in (401, 403):
             raise VattenfallAccessDeniedError(
@@ -533,7 +598,66 @@ class VattenfallApiClient:
         if points:
             return points
 
-        raise VattenfallApiError("Unexpected hourly temperature API payload shape; no points extracted")
+        raise VattenfallApiError(
+            "Unexpected hourly temperature API payload shape; no points extracted"
+        )
+
+    async def _async_fetch_contract(self) -> ContractTariff:
+        """Fetch contract tariff/fee details from Vattenfall API."""
+        endpoint = f"{self._base_url}/contract/contract/{self._metering_point_id}"
+
+        headers = self._request_headers(
+            sec_fetch_dest="empty",
+            sec_fetch_mode="cors",
+            sec_fetch_site="same-site",
+            priority="u=1, i",
+        )
+        headers["accept"] = "application/json, text/plain, */*"
+        headers["ocp-apim-subscription-key"] = self._subscription_key
+
+        cookies: dict[str, str] = {}
+        for key in ("csrf-token", "VF_SecurityCookie", "VF_AccessCookie"):
+            value = self._cookie_value(key, domain_hint="vattenfalleldistribution.se")
+            if value:
+                cookies[key] = value
+
+        if not cookies.get("VF_SecurityCookie") or not cookies.get("VF_AccessCookie"):
+            raise VattenfallAuthError(
+                "Missing API auth cookies before contract request"
+            )
+
+        response = await self._async_get_with_retry(
+            endpoint, headers, cookies, "contract"
+        )
+
+        if response.status_code in (401, 403):
+            raise VattenfallAuthError(
+                f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
+                f"{response.text[:200]}"
+            )
+        if response.status_code == 500 and not response.text.strip():
+            raise VattenfallAuthError(
+                "Vattenfall API returned HTTP 500 with empty body when fetching contract — likely expired session"
+            )
+        if response.status_code >= 400:
+            raise VattenfallApiError(
+                f"Vattenfall API returned HTTP {response.status_code} when fetching contract: {response.text[:200] or '<empty response body>'}"
+            )
+
+        payload = response.json()
+        tariff = self._extract_contract_tariff(payload)
+        if tariff is not None:
+            return tariff
+
+        if self._allow_stub_data:
+            _LOGGER.warning(
+                "Unexpected contract API payload shape, falling back to stub data"
+            )
+            return self._build_stub_contract()
+
+        raise VattenfallApiError(
+            "Unexpected contract API payload shape; no tariff extracted"
+        )
 
     def _extract_session_data_key(self) -> str:
         """Extract `sessionDataKey` from `sessionNonceCookie-<key>` cookie name."""
@@ -660,7 +784,9 @@ class VattenfallApiClient:
         """Log outbound HTTP request details for debugging."""
         if not _LOGGER.isEnabledFor(logging.DEBUG):
             return
-        effective_cookies = cookies if cookies is not None else self._cookies_for_url(url)
+        effective_cookies = (
+            cookies if cookies is not None else self._cookies_for_url(url)
+        )
         header_lines = "\n".join(
             f"    {key}: {value}" for key, value in sorted(headers.items())
         )
@@ -712,14 +838,24 @@ class VattenfallApiClient:
 
         points: list[ConsumptionPoint] = []
         for item in raw_points:
-            day = _first_present(item, "date", "Date", "period", "Period", "from", "From")
+            day = _first_present(
+                item, "date", "Date", "period", "Period", "from", "From"
+            )
             value = _first_present(
-                item, "value", "Value", "consumption", "Consumption", "quantity", "Quantity"
+                item,
+                "value",
+                "Value",
+                "consumption",
+                "Consumption",
+                "quantity",
+                "Quantity",
             )
 
             try:
                 if day is not None and value is not None:
-                    points.append(ConsumptionPoint(date=str(day), value_kwh=float(value)))
+                    points.append(
+                        ConsumptionPoint(date=str(day), value_kwh=float(value))
+                    )
             except (TypeError, ValueError):
                 continue
 
@@ -738,9 +874,17 @@ class VattenfallApiClient:
 
         points: list[HourlyConsumptionPoint] = []
         for item in raw_points:
-            date_time = _first_present(item, "date", "Date", "period", "Period", "from", "From")
+            date_time = _first_present(
+                item, "date", "Date", "period", "Period", "from", "From"
+            )
             value = _first_present(
-                item, "consumption", "Consumption", "value", "Value", "quantity", "Quantity"
+                item,
+                "consumption",
+                "Consumption",
+                "value",
+                "Value",
+                "quantity",
+                "Quantity",
             )
             status = item.get("status") or item.get("Status")
 
@@ -759,7 +903,9 @@ class VattenfallApiClient:
         points.sort(key=lambda p: p.date_time)
         return points
 
-    def _extract_hourly_temperature_points(self, payload: Any) -> list[HourlyTemperaturePoint]:
+    def _extract_hourly_temperature_points(
+        self, payload: Any
+    ) -> list[HourlyTemperaturePoint]:
         """Extract hourly temperature points from API response payload."""
         raw_points: list[dict[str, Any]] = []
         if isinstance(payload, dict) and isinstance(payload.get("temperatures"), list):
@@ -791,6 +937,31 @@ class VattenfallApiClient:
 
         points.sort(key=lambda p: p.date_time)
         return points
+
+    def _extract_contract_tariff(self, payload: Any) -> ContractTariff | None:
+        """Extract tariff/fee details from the contract API response payload."""
+        if not isinstance(payload, dict):
+            return None
+
+        def _as_float(key: str) -> float | None:
+            value = payload.get(key)
+            try:
+                return float(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        tariff = ContractTariff(
+            transfer_fee_incl_vat=_as_float("transferFeeInclVat"),
+            energy_tax_incl_vat=_as_float("energyTaxInclVat"),
+            fixed_fee_incl_vat_incl_discount=_as_float("fixedFeeInclVatInclDiscount"),
+        )
+        if (
+            tariff.transfer_fee_incl_vat is None
+            and tariff.energy_tax_incl_vat is None
+            and tariff.fixed_fee_incl_vat_incl_discount is None
+        ):
+            return None
+        return tariff
 
     def _flatten_points(self, payload: Any) -> list[dict[str, Any]]:
         """Flatten known/unknown payload shapes into a list of dict points."""
@@ -824,14 +995,18 @@ class VattenfallApiClient:
 
         return nested_points
 
-    def _build_stub_points(self, start_date: date, end_date: date) -> list[ConsumptionPoint]:
+    def _build_stub_points(
+        self, start_date: date, end_date: date
+    ) -> list[ConsumptionPoint]:
         """Build deterministic stub data for development/testing."""
         points: list[ConsumptionPoint] = []
         day = start_date
 
         while day <= end_date:
             value = 8.0 + ((day.day % 7) * 0.7)
-            points.append(ConsumptionPoint(date=day.isoformat(), value_kwh=round(value, 3)))
+            points.append(
+                ConsumptionPoint(date=day.isoformat(), value_kwh=round(value, 3))
+            )
             day += timedelta(days=1)
 
         return points
@@ -847,7 +1022,9 @@ class VattenfallApiClient:
         )
 
         while dt <= end_dt:
-            hour_weight = 1.2 if 6 <= dt.hour <= 9 else 0.7 if 0 <= dt.hour <= 5 else 0.9
+            hour_weight = (
+                1.2 if 6 <= dt.hour <= 9 else 0.7 if 0 <= dt.hour <= 5 else 0.9
+            )
             value = 0.35 + ((dt.day % 5) * 0.11) + hour_weight
             points.append(
                 HourlyConsumptionPoint(
@@ -890,3 +1067,11 @@ class VattenfallApiClient:
             dt += timedelta(hours=1)
 
         return points
+
+    def _build_stub_contract(self) -> ContractTariff:
+        """Build deterministic contract stub data for development/testing."""
+        return ContractTariff(
+            transfer_fee_incl_vat=0.445,
+            energy_tax_incl_vat=0.45,
+            fixed_fee_incl_vat_incl_discount=2450.0,
+        )

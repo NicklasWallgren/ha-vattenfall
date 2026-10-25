@@ -524,6 +524,37 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(last_call[1], temperature_url)
         self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
 
+    async def test_get_contract_returns_tariff(self) -> None:
+        routes = _auth_routes()
+        contract_url = (
+            "https://services.vattenfalleldistribution.se/contract/contract/"
+            "HDG123456789"
+        )
+        routes[("GET", contract_url)] = [
+            FakeResponse(
+                status=200,
+                json_body={
+                    "transferFeeInclVat": 0.445,
+                    "energyTaxInclVat": 0.45,
+                    "fixedFeeInclVatInclDiscount": 2450,
+                },
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = api.VattenfallApiClient(hass=object(), config=_base_config())
+            tariff = await client.async_get_contract()
+
+        self.assertEqual(tariff.transfer_fee_incl_vat, 0.445)
+        self.assertEqual(tariff.energy_tax_incl_vat, 0.45)
+        self.assertEqual(tariff.fixed_fee_incl_vat_incl_discount, 2450.0)
+
+        last_call = session.calls[-1]
+        self.assertEqual(last_call[0], "GET")
+        self.assertEqual(last_call[1], contract_url)
+        self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
+
     async def test_get_daily_consumption_reauths_after_unauthorized(self) -> None:
         routes = _auth_routes()
         for key, values in _auth_routes().items():
