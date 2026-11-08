@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import dataclasses as dataclasses_mod
 from datetime import date
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import importlib
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -616,6 +616,32 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
                 await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
 
         self.assertNotIsInstance(ctx.exception, api.VattenfallAccessDeniedError)
+
+    async def test_fetch_subscription_key_reads_website_meta_tag(self) -> None:
+        key = "0123456789abcdef0123456789abcdef"
+        session = FakeHttpxClient(
+            {
+                ("GET", "https://www.vattenfalleldistribution.se/"): [
+                    FakeResponse(text_body=f'<meta name="subscription-key" content="{key}">')
+                ]
+            }
+        )
+
+        self.assertEqual(await api.async_fetch_subscription_key(session), key)
+
+    async def test_fetch_subscription_key_fails_when_tag_is_missing(self) -> None:
+        session = FakeHttpxClient(
+            {("GET", "https://www.vattenfalleldistribution.se/"): [FakeResponse(text_body="<html>")]}
+        )
+
+        with self.assertRaises(api.VattenfallApiError):
+            await api.async_fetch_subscription_key(session)
+
+    async def test_fetch_subscription_key_wraps_network_errors(self) -> None:
+        session = SimpleNamespace(get=AsyncMock(side_effect=api.httpx.ConnectError("down")))
+
+        with self.assertRaises(api.VattenfallApiError):
+            await api.async_fetch_subscription_key(session)
 
     def test_extract_points_keeps_zero_readings(self) -> None:
         client = api.VattenfallApiClient(hass=object(), config=_base_config())
