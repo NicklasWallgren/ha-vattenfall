@@ -8,7 +8,7 @@ dashboards, Energy, and automations.
 
 ## Features
 
-- Config flow setup from Home Assistant UI
+- Config flow setup from Home Assistant UI, with re-authentication and reconfigure support
 - Hourly data updates via coordinator
 - Consumption sensors:
   - Latest day consumption
@@ -17,6 +17,7 @@ dashboards, Energy, and automations.
   - Latest hour consumption
   - Latest day hourly total
   - Latest day peak hour
+  - Latest consumption reading (timestamp of the newest data from Vattenfall)
   - Latest outdoor temperature
   - Latest day average temperature
   - Latest day minimum temperature

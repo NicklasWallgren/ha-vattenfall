@@ -13,6 +13,8 @@ import test_api_flow  # noqa: F401  # installs the Home Assistant stubs
 
 coordinator_mod = importlib.import_module("custom_components.vattenfall.coordinator")
 api = importlib.import_module("custom_components.vattenfall.api")
+ConfigEntryAuthFailed = importlib.import_module("homeassistant.exceptions").ConfigEntryAuthFailed
+UpdateFailed = importlib.import_module("homeassistant.helpers.update_coordinator").UpdateFailed
 
 _START = datetime(2026, 3, 1, tzinfo=timezone.utc).timestamp()
 _HOUR = 3600.0
@@ -147,6 +149,40 @@ class StatisticsMergeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CoordinatorDataTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rejected_login_starts_reauthentication(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(side_effect=api.VattenfallAccessDeniedError("no"))
+        )
+
+        with self.assertRaises(ConfigEntryAuthFailed):
+            await _coordinator(client)._async_update_data()
+
+    async def test_expired_session_error_stays_a_normal_update_failure(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(side_effect=api.VattenfallAuthError("empty 500"))
+        )
+
+        with self.assertRaises(UpdateFailed):
+            await _coordinator(client)._async_update_data()
+
+    async def test_latest_reading_uses_second_repeated_dst_hour(self) -> None:
+        hourly = [
+            api.HourlyConsumptionPoint(date_time="2026-10-25T02:00:00", value_kwh=1.0),
+            api.HourlyConsumptionPoint(date_time="2026-10-25T02:00:00", value_kwh=2.0),
+        ]
+        client = SimpleNamespace(async_get_hourly_consumption=AsyncMock(return_value=hourly))
+
+        data = await _coordinator(client)._async_build_data(
+            daily_start=None,
+            daily_end=None,
+            hourly_start=date(2026, 10, 25),
+            hourly_end=date(2026, 10, 26),
+            temperature_start=None,
+            temperature_end=None,
+        )
+
+        self.assertEqual(data["latest_reading"], datetime(2026, 10, 25, 1, tzinfo=timezone.utc))
+
     async def test_backfill_refuses_stub_data(self) -> None:
         client = SimpleNamespace(
             async_get_daily_consumption=AsyncMock(return_value=[]),

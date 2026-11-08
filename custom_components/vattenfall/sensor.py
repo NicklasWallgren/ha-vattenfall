@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -111,6 +111,16 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         attribute_group="hourly",
     ),
     VattenfallSensorEntityDescription(
+        key="latest_reading",
+        translation_key="latest_reading",
+        name="Latest consumption reading",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_key="latest_reading",
+        icon="mdi:clock-check-outline",
+        attribute_group="hourly",
+    ),
+    VattenfallSensorEntityDescription(
         key="latest_temperature",
         translation_key="latest_temperature",
         name="Latest outdoor temperature",
@@ -196,11 +206,11 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
         )
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | datetime | None:
         """Return sensor value."""
         value: Any = self.coordinator.data.get(self.entity_description.value_key)
-        if value is None:
-            return None
+        if value is None or isinstance(value, datetime):
+            return value
 
         try:
             return float(value)

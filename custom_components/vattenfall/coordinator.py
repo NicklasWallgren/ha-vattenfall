@@ -11,12 +11,14 @@ import zoneinfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
     ConsumptionPoint,
     HourlyConsumptionPoint,
     HourlyTemperaturePoint,
+    VattenfallAccessDeniedError,
     VattenfallApiClient,
     VattenfallApiError,
 )
@@ -128,6 +130,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temperature_start=hourly_start,
                 temperature_end=hourly_end,
             )
+        except VattenfallAccessDeniedError as err:
+            raise ConfigEntryAuthFailed(f"Vattenfall rejected the login: {err}") from err
         except VattenfallApiError as err:
             raise UpdateFailed(f"Failed to fetch data from Vattenfall API: {err}") from err
 
@@ -241,6 +245,14 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data.update(
                 {
                     "latest_hour_kwh": latest_hour_kwh,
+                    "latest_reading": (
+                        datetime.fromtimestamp(
+                            _hourly_timestamps([p.date_time for p in hourly_points])[-1],
+                            timezone.utc,
+                        )
+                        if hourly_points
+                        else None
+                    ),
                     "today_total_kwh": latest_day_total_kwh,
                     "today_peak_hour_kwh": latest_day_peak_hour_kwh,
                     "today_peak_hour_time": latest_day_peak_hour_time,

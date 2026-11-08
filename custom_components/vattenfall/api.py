@@ -56,6 +56,10 @@ class VattenfallAuthError(VattenfallApiError):
     """Authentication error."""
 
 
+class VattenfallAccessDeniedError(VattenfallAuthError):
+    """Credentials or subscription key refused, which is final after a fresh login."""
+
+
 @dataclass(slots=True)
 class ConsumptionPoint:
     """A single consumption datapoint."""
@@ -186,8 +190,8 @@ class VattenfallApiClient:
     ) -> _T:
         """Run fetch, logging in again once if the session was rejected."""
         try:
+            await self.async_authenticate()
             try:
-                await self.async_authenticate()
                 return await fetch()
             except VattenfallAuthError:
                 await self.async_authenticate(force=True)
@@ -281,8 +285,10 @@ class VattenfallApiClient:
         )
         self._debug_log_response("commonauth", response)
         if response.status_code in (401, 403):
-            raise VattenfallAuthError("Invalid Vattenfall credentials")
+            raise VattenfallAccessDeniedError("Invalid Vattenfall credentials")
         location_2 = self._redirect_location(response, "commonauth")
+        if "authFailure=true" in location_2:
+            raise VattenfallAccessDeniedError("Invalid Vattenfall credentials")
 
         oauth2_url = self._resolve_url(_COMMONAUTH_URL, location_2)
         oauth2_cookies = self._cookies_for_url(oauth2_url)
@@ -378,7 +384,7 @@ class VattenfallApiClient:
         response = await self._async_get_with_retry(endpoint, headers, cookies, "consumption")
 
         if response.status_code in (401, 403):
-            raise VattenfallAuthError(
+            raise VattenfallAccessDeniedError(
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
             )
@@ -433,7 +439,7 @@ class VattenfallApiClient:
         response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_consumption")
 
         if response.status_code in (401, 403):
-            raise VattenfallAuthError(
+            raise VattenfallAccessDeniedError(
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
             )
@@ -486,7 +492,7 @@ class VattenfallApiClient:
         response = await self._async_get_with_retry(endpoint, headers, cookies, "hourly_temperature")
 
         if response.status_code in (401, 403):
-            raise VattenfallAuthError(
+            raise VattenfallAccessDeniedError(
                 f"Unauthorized response from Vattenfall API (HTTP {response.status_code}): "
                 f"{response.text[:200]}"
             )

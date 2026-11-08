@@ -78,7 +78,11 @@ def _install_dependency_stubs() -> None:
         class HomeAssistantError(Exception):
             pass
 
+        class ConfigEntryAuthFailed(HomeAssistantError):
+            pass
+
         exceptions_mod.HomeAssistantError = HomeAssistantError
+        exceptions_mod.ConfigEntryAuthFailed = ConfigEntryAuthFailed
         sys.modules["homeassistant.exceptions"] = exceptions_mod
 
     if "homeassistant.helpers" not in sys.modules:
@@ -564,6 +568,54 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
             client = api.VattenfallApiClient(hass=object(), config=_base_config())
             with self.assertRaises(api.VattenfallAuthError):
                 await client.async_authenticate(force=True)
+
+    async def test_rejected_login_stops_after_one_attempt(self) -> None:
+        routes = _auth_routes()
+        routes[("POST", "https://accounts.vattenfall.com/iamng/seb2c/dso/commonauth")] = [
+            FakeResponse(
+                status=302,
+                headers={
+                    "Location": "https://accounts.vattenfall.com/iamng/seb2c/dso/web/"
+                    "#/home-login?authFailure=true"
+                },
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = api.VattenfallApiClient(hass=object(), config=_base_config())
+            with self.assertRaises(api.VattenfallAccessDeniedError):
+                await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
+
+        self.assertEqual(len([call for call in session.calls if call[0] == "POST"]), 1)
+
+    async def test_key_refused_after_fresh_login_is_access_denied(self) -> None:
+        client = api.VattenfallApiClient(hass=object(), config=_base_config())
+        fetch = AsyncMock(side_effect=api.VattenfallAccessDeniedError("refused"))
+        authenticate = AsyncMock()
+
+        with (
+            patch.object(client, "async_authenticate", authenticate),
+            patch.object(client, "_async_fetch_daily_consumption", fetch),
+            self.assertRaises(api.VattenfallAccessDeniedError),
+        ):
+            await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
+
+        self.assertEqual(fetch.await_count, 2)
+        authenticate.assert_awaited_with(force=True)
+
+    async def test_server_error_after_fresh_login_is_not_access_denied(self) -> None:
+        client = api.VattenfallApiClient(hass=object(), config=_base_config())
+        fetch = AsyncMock(side_effect=api.VattenfallAuthError("empty 500"))
+
+        with (
+            patch.object(client, "async_authenticate", AsyncMock()),
+            patch.object(client, "_async_fetch_daily_consumption", fetch),
+        ):
+            with self.assertRaises(api.VattenfallAuthError) as ctx:
+                await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
+
+        self.assertNotIsInstance(ctx.exception, api.VattenfallAccessDeniedError)
 
     def test_extract_points_keeps_zero_readings(self) -> None:
         client = api.VattenfallApiClient(hass=object(), config=_base_config())
