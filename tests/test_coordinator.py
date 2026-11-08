@@ -158,12 +158,53 @@ class CoordinatorDataTests(unittest.IsolatedAsyncioTestCase):
             await _coordinator(client)._async_update_data()
 
     async def test_expired_session_error_stays_a_normal_update_failure(self) -> None:
+        error = api.VattenfallAuthError("empty 500")
         client = SimpleNamespace(
-            async_get_daily_consumption=AsyncMock(side_effect=api.VattenfallAuthError("empty 500"))
+            async_get_daily_consumption=AsyncMock(side_effect=error),
+            async_get_hourly_consumption=AsyncMock(side_effect=error),
+            async_get_hourly_temperature=AsyncMock(side_effect=error),
         )
 
         with self.assertRaises(UpdateFailed):
             await _coordinator(client)._async_update_data()
+
+    async def test_failed_group_leaves_other_groups_intact(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(
+                return_value=[api.ConsumptionPoint(date="2026-03-01", value_kwh=5.0)]
+            ),
+            async_get_hourly_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_temperature=AsyncMock(side_effect=api.VattenfallApiError("down")),
+        )
+
+        data = await _coordinator(client)._async_update_data()
+
+        self.assertEqual(data["latest_day_kwh"], 5.0)
+        self.assertEqual(data["failed_groups"], {"temperature"})
+        self.assertNotIn("latest_temperature_c", data)
+
+    async def test_refused_login_in_a_later_group_starts_reauthentication(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_consumption=AsyncMock(side_effect=api.VattenfallAccessDeniedError("no")),
+        )
+
+        with self.assertRaises(ConfigEntryAuthFailed):
+            await _coordinator(client)._async_update_data()
+
+    async def test_repeated_group_failure_is_logged_once(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_temperature=AsyncMock(side_effect=api.VattenfallApiError("down")),
+        )
+        coordinator = _coordinator(client)
+
+        with patch.object(coordinator_mod._LOGGER, "warning") as warning:
+            coordinator.data = await coordinator._async_update_data()
+            coordinator.data = await coordinator._async_update_data()
+
+        warning.assert_called_once()
 
     async def test_latest_reading_uses_second_repeated_dst_hour(self) -> None:
         hourly = [

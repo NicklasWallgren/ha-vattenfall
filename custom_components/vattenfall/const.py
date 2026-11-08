@@ -22,6 +22,7 @@ DEFAULT_AUTH_START_URL = (
     "?returnUrl=https%3a%2f%2fwww.vattenfalleldistribution.se%2flogga-in%2f"
 )
 
+ATTR_FAILED_GROUPS = "failed_groups"
 ATTR_START_DATE = "start_date"
 ATTR_END_DATE = "end_date"
 ATTR_POINTS = "points"

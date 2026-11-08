@@ -21,6 +21,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_END_DATE,
+    ATTR_FAILED_GROUPS,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
@@ -203,6 +204,13 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
             identifiers={(DOMAIN, entry.entry_id)},
             name="Vattenfall",
             manufacturer="Vattenfall",
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return False while this sensor's data group could not be fetched."""
+        return super().available and self.entity_description.attribute_group not in (
+            self.coordinator.data.get(ATTR_FAILED_GROUPS, set())
         )
 
     @property
