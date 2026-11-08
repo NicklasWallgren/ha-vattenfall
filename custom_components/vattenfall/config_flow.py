@@ -37,6 +37,16 @@ from .const import (
 _PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
 
+def _without_spaces(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Remove spaces from the fields where the API rejects them."""
+    return {
+        key: "".join(value.split())
+        if key in (CONF_METERING_POINT_ID, CONF_TEMPERATURE_AREA_CODE)
+        else value
+        for key, value in user_input.items()
+    }
+
+
 class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Vattenfall."""
 
@@ -76,6 +86,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input = _without_spaces(user_input)
             await self.async_set_unique_id(user_input[CONF_METERING_POINT_ID])
             self._abort_if_unique_id_configured()
 
@@ -143,7 +154,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             # A blank key must trigger detection, not fall back to the saved one.
-            merged = {**entry.data, CONF_SUBSCRIPTION_KEY: None, **user_input}
+            merged = {**entry.data, CONF_SUBSCRIPTION_KEY: None, **_without_spaces(user_input)}
             config, errors = await self._async_validate(merged)
             if not errors:
                 return self.async_update_reload_and_abort(entry, data=config)

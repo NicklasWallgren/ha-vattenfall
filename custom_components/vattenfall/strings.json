@@ -10,10 +10,11 @@
           "password": "Password",
           "metering_point_id": "Metering point ID",
           "subscription_key": "Subscription key",
-          "temperature_area_code": "Temperature area code"
+          "temperature_area_code": "Postal code for temperature"
         },
         "data_description": {
-          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website."
+          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website.",
+          "temperature_area_code": "Your five-digit postal code. Vattenfall uses it to choose the outdoor temperature area."
         }
       },
       "reauth_confirm": {
@@ -35,10 +36,11 @@
           "customer_id": "Customer ID",
           "password": "Password",
           "subscription_key": "Subscription key",
-          "temperature_area_code": "Temperature area code"
+          "temperature_area_code": "Postal code for temperature"
         },
         "data_description": {
-          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website."
+          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website.",
+          "temperature_area_code": "Your five-digit postal code. Vattenfall uses it to choose the outdoor temperature area."
         }
       }
     },

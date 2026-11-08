@@ -62,9 +62,15 @@ Install this integration with the following button:
 3. Enter:
    - `Customer ID`
    - `Password`
-   - `Metering point ID`
+   - `Metering point ID` (any spaces are removed automatically)
    - `Subscription key` (optional, leave blank to detect it automatically)
-   - `Temperature area code` (defaults to `14132`)
+   - `Postal code for temperature` (five digits, defaults to `11120`)
+
+### Postal code for temperature
+
+Vattenfall chooses the outdoor temperature area from this postal code, so enter your own. Any spaces are removed. The
+default, `11120`, is in central Stockholm. A five-digit code Vattenfall doesn't recognise still returns data, but for a fallback
+area, so the temperatures may not match your location.
 
 ### Getting a subscription key
 

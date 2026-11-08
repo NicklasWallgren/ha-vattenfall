@@ -219,13 +219,13 @@ class VattenfallApiClient:
             except VattenfallAuthError:
                 await self.async_authenticate(force=True)
                 return await fetch()
-        except (VattenfallApiError, httpx.HTTPError) as err:
+        except (VattenfallApiError, httpx.HTTPError, ValueError) as err:
             if self._allow_stub_data and allow_stub:
                 _LOGGER.warning("%s fetch failed, falling back to stub data: %s", label, err)
                 return build_stub()
             if isinstance(err, VattenfallApiError):
                 raise
-            raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
+            raise VattenfallApiError(f"Error while calling Vattenfall API: {err}") from err
 
     @property
     def _has_auth_cookies(self) -> bool:

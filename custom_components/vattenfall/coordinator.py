@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 import zoneinfo
 
 from homeassistant.config_entries import ConfigEntry
@@ -24,6 +24,7 @@ from .api import (
 )
 from .const import (
     ATTR_END_DATE,
+    ATTR_FAILED_GROUPS,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
@@ -193,119 +194,144 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temperature_start: date | None,
         temperature_end: date | None,
     ) -> dict[str, Any]:
-        """Build coordinator data payload for selected daily/hourly ranges."""
-        data: dict[str, Any] = {}
-
+        """Build coordinator data, letting each data group fail on its own."""
+        builders: dict[str, Callable[[], Awaitable[dict[str, Any]]]] = {}
         if daily_start is not None and daily_end is not None:
-            daily_points = await self.client.async_get_daily_consumption(daily_start, daily_end)
-            daily_values = [point.value_kwh for point in daily_points]
-
-            latest_day_kwh = daily_values[-1] if daily_values else 0.0
-            month_to_date_kwh = round(sum(daily_values), 3)
-            avg_daily_kwh = (
-                round(month_to_date_kwh / len(daily_values), 3) if daily_values else 0.0
-            )
-
-            data.update(
-                {
-                    "latest_day_kwh": latest_day_kwh,
-                    "latest_day_reset": _day_start(daily_points[-1].date) if daily_points else None,
-                    "month_to_date_reset": _day_start(daily_start.isoformat()),
-                    "month_to_date_kwh": month_to_date_kwh,
-                    "average_daily_kwh": avg_daily_kwh,
-                    ATTR_START_DATE: daily_start.isoformat(),
-                    ATTR_END_DATE: daily_end.isoformat(),
-                    ATTR_POINTS: [asdict(point) for point in daily_points],
-                }
-            )
-
+            builders["daily"] = lambda: self._async_build_daily(daily_start, daily_end)
         if hourly_start is not None and hourly_end is not None:
-            hourly_points = await self.client.async_get_hourly_consumption(
-                hourly_start, hourly_end, include_load=True
-            )
-            hourly_values = [point.value_kwh for point in hourly_points]
-            latest_hour_kwh = hourly_values[-1] if hourly_values else 0.0
-
-            latest_day = _latest_day([p.date_time for p in hourly_points], before=hourly_end)
-            latest_day_points = [
-                p for p in hourly_points if latest_day and p.date_time.startswith(latest_day)
-            ]
-            latest_day_values = [p.value_kwh for p in latest_day_points]
-
-            latest_day_total_kwh = round(sum(latest_day_values), 3) if latest_day_values else None
-            latest_day_peak_hour_kwh = (
-                round(max(latest_day_values), 3) if latest_day_values else None
-            )
-            if latest_day_points:
-                peak_point = max(latest_day_points, key=lambda p: p.value_kwh)
-                latest_day_peak_hour_time = peak_point.date_time
-            else:
-                latest_day_peak_hour_time = None
-
-            data.update(
-                {
-                    "latest_hour_kwh": latest_hour_kwh,
-                    "latest_reading": (
-                        datetime.fromtimestamp(
-                            _hourly_timestamps([p.date_time for p in hourly_points])[-1],
-                            timezone.utc,
-                        )
-                        if hourly_points
-                        else None
-                    ),
-                    "today_total_kwh": latest_day_total_kwh,
-                    "today_peak_hour_kwh": latest_day_peak_hour_kwh,
-                    "today_peak_hour_time": latest_day_peak_hour_time,
-                    "hourly_latest_day": latest_day,
-                    "hourly_latest_day_reset": _day_start(latest_day) if latest_day else None,
-                    ATTR_HOURLY_START_DATE: hourly_start.isoformat(),
-                    ATTR_HOURLY_END_DATE: hourly_end.isoformat(),
-                    ATTR_HOURLY_POINTS: [asdict(point) for point in hourly_points],
-                }
-            )
-
+            builders["hourly"] = lambda: self._async_build_hourly(hourly_start, hourly_end)
         if temperature_start is not None and temperature_end is not None:
-            temperature_points = await self.client.async_get_hourly_temperature(
-                temperature_start, temperature_end, use_cet=True
-            )
-            latest_temp_day = _latest_day(
-                [p.date_time for p in temperature_points], before=temperature_end
-            )
-            selected_day_temp_values = [
-                p.value_c
-                for p in temperature_points
-                if latest_temp_day and p.date_time.startswith(latest_temp_day)
-            ]
-
-            latest_temperature_c = (
-                temperature_points[-1].value_c if temperature_points else None
-            )
-            today_avg_temperature_c = (
-                round(sum(selected_day_temp_values) / len(selected_day_temp_values), 2)
-                if selected_day_temp_values
-                else None
-            )
-            today_min_temperature_c = (
-                round(min(selected_day_temp_values), 2) if selected_day_temp_values else None
-            )
-            today_max_temperature_c = (
-                round(max(selected_day_temp_values), 2) if selected_day_temp_values else None
+            builders["temperature"] = lambda: self._async_build_temperature(
+                temperature_start, temperature_end
             )
 
-            data.update(
-                {
-                    "latest_temperature_c": latest_temperature_c,
-                    "today_avg_temperature_c": today_avg_temperature_c,
-                    "today_min_temperature_c": today_min_temperature_c,
-                    "today_max_temperature_c": today_max_temperature_c,
-                    "temperature_latest_day": latest_temp_day,
-                    ATTR_TEMPERATURE_START_DATE: temperature_start.isoformat(),
-                    ATTR_TEMPERATURE_END_DATE: temperature_end.isoformat(),
-                    ATTR_TEMPERATURE_POINTS: [asdict(point) for point in temperature_points],
-                }
-            )
+        previously_failed = (self.data or {}).get(ATTR_FAILED_GROUPS, set())
+        data: dict[str, Any] = {}
+        errors: dict[str, VattenfallApiError] = {}
+        for group, build in builders.items():
+            try:
+                data.update(await build())
+            except VattenfallAccessDeniedError:
+                raise
+            except VattenfallApiError as err:
+                errors[group] = err
+                if group not in previously_failed:
+                    _LOGGER.warning("Could not fetch Vattenfall %s data: %s", group, err)
+            else:
+                if group in previously_failed:
+                    _LOGGER.info("Vattenfall %s data is available again", group)
 
+        if errors and len(errors) == len(builders):
+            raise next(iter(errors.values()))
+
+        data[ATTR_FAILED_GROUPS] = set(errors)
         return data
+
+    async def _async_build_daily(self, daily_start: date, daily_end: date) -> dict[str, Any]:
+        """Build the daily consumption part of the coordinator data."""
+        daily_points = await self.client.async_get_daily_consumption(daily_start, daily_end)
+        daily_values = [point.value_kwh for point in daily_points]
+
+        latest_day_kwh = daily_values[-1] if daily_values else 0.0
+        month_to_date_kwh = round(sum(daily_values), 3)
+        avg_daily_kwh = (
+            round(month_to_date_kwh / len(daily_values), 3) if daily_values else 0.0
+        )
+
+        return {
+            "latest_day_kwh": latest_day_kwh,
+            "latest_day_reset": _day_start(daily_points[-1].date) if daily_points else None,
+            "month_to_date_reset": _day_start(daily_start.isoformat()),
+            "month_to_date_kwh": month_to_date_kwh,
+            "average_daily_kwh": avg_daily_kwh,
+            ATTR_START_DATE: daily_start.isoformat(),
+            ATTR_END_DATE: daily_end.isoformat(),
+            ATTR_POINTS: [asdict(point) for point in daily_points],
+        }
+
+    async def _async_build_hourly(self, hourly_start: date, hourly_end: date) -> dict[str, Any]:
+        """Build the hourly consumption part of the coordinator data."""
+        hourly_points = await self.client.async_get_hourly_consumption(
+            hourly_start, hourly_end, include_load=True
+        )
+        hourly_values = [point.value_kwh for point in hourly_points]
+        latest_hour_kwh = hourly_values[-1] if hourly_values else 0.0
+
+        latest_day = _latest_day([p.date_time for p in hourly_points], before=hourly_end)
+        latest_day_points = [
+            p for p in hourly_points if latest_day and p.date_time.startswith(latest_day)
+        ]
+        latest_day_values = [p.value_kwh for p in latest_day_points]
+
+        latest_day_total_kwh = round(sum(latest_day_values), 3) if latest_day_values else None
+        latest_day_peak_hour_kwh = (
+            round(max(latest_day_values), 3) if latest_day_values else None
+        )
+        if latest_day_points:
+            peak_point = max(latest_day_points, key=lambda p: p.value_kwh)
+            latest_day_peak_hour_time = peak_point.date_time
+        else:
+            latest_day_peak_hour_time = None
+
+        return {
+            "latest_hour_kwh": latest_hour_kwh,
+            "latest_reading": (
+                datetime.fromtimestamp(
+                    _hourly_timestamps([p.date_time for p in hourly_points])[-1],
+                    timezone.utc,
+                )
+                if hourly_points
+                else None
+            ),
+            "today_total_kwh": latest_day_total_kwh,
+            "today_peak_hour_kwh": latest_day_peak_hour_kwh,
+            "today_peak_hour_time": latest_day_peak_hour_time,
+            "hourly_latest_day": latest_day,
+            "hourly_latest_day_reset": _day_start(latest_day) if latest_day else None,
+            ATTR_HOURLY_START_DATE: hourly_start.isoformat(),
+            ATTR_HOURLY_END_DATE: hourly_end.isoformat(),
+            ATTR_HOURLY_POINTS: [asdict(point) for point in hourly_points],
+        }
+
+    async def _async_build_temperature(self, temperature_start: date, temperature_end: date) -> dict[str, Any]:
+        """Build the temperature part of the coordinator data."""
+        temperature_points = await self.client.async_get_hourly_temperature(
+            temperature_start, temperature_end, use_cet=True
+        )
+        latest_temp_day = _latest_day(
+            [p.date_time for p in temperature_points], before=temperature_end
+        )
+        selected_day_temp_values = [
+            p.value_c
+            for p in temperature_points
+            if latest_temp_day and p.date_time.startswith(latest_temp_day)
+        ]
+
+        latest_temperature_c = (
+            temperature_points[-1].value_c if temperature_points else None
+        )
+        today_avg_temperature_c = (
+            round(sum(selected_day_temp_values) / len(selected_day_temp_values), 2)
+            if selected_day_temp_values
+            else None
+        )
+        today_min_temperature_c = (
+            round(min(selected_day_temp_values), 2) if selected_day_temp_values else None
+        )
+        today_max_temperature_c = (
+            round(max(selected_day_temp_values), 2) if selected_day_temp_values else None
+        )
+
+        return {
+            "latest_temperature_c": latest_temperature_c,
+            "today_avg_temperature_c": today_avg_temperature_c,
+            "today_min_temperature_c": today_min_temperature_c,
+            "today_max_temperature_c": today_max_temperature_c,
+            "temperature_latest_day": latest_temp_day,
+            ATTR_TEMPERATURE_START_DATE: temperature_start.isoformat(),
+            ATTR_TEMPERATURE_END_DATE: temperature_end.isoformat(),
+            ATTR_TEMPERATURE_POINTS: [asdict(point) for point in temperature_points],
+        }
 
     async def _async_write_statistics(
         self,

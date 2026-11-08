@@ -165,7 +165,7 @@ def _install_dependency_stubs() -> None:
 
         class DataUpdateCoordinator:
             def __init__(self, *args, **kwargs):  # noqa: D401, ANN002, ANN003
-                pass
+                self.data = None
 
             def __class_getitem__(cls, _item):  # noqa: ANN001
                 return cls
@@ -642,6 +642,17 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(api.VattenfallApiError):
             await api.async_fetch_subscription_key(session)
+
+    async def test_non_json_response_becomes_api_error(self) -> None:
+        client = api.VattenfallApiClient(hass=object(), config=_base_config())
+        fetch = AsyncMock(side_effect=ValueError("not json"))
+
+        with (
+            patch.object(client, "async_authenticate", AsyncMock()),
+            patch.object(client, "_async_fetch_daily_consumption", fetch),
+            self.assertRaises(api.VattenfallApiError),
+        ):
+            await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
 
     def test_extract_points_keeps_zero_readings(self) -> None:
         client = api.VattenfallApiClient(hass=object(), config=_base_config())
