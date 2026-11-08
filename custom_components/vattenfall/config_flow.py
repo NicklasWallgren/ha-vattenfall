@@ -10,13 +10,19 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
-from .api import VattenfallApiClient, VattenfallApiError, VattenfallAuthError
+from .api import (
+    VattenfallApiClient,
+    VattenfallApiError,
+    VattenfallAuthError,
+    async_fetch_subscription_key,
+)
 from .const import (
     CONF_CUSTOMER_ID,
     CONF_METERING_POINT_ID,
@@ -36,8 +42,17 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _async_validate(self, config: dict[str, Any]) -> dict[str, str]:
-        """Try the given settings against Vattenfall and return any form errors."""
+    async def _async_validate(
+        self, config: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        """Try the settings against Vattenfall, returning them completed plus any form errors."""
+        if not config.get(CONF_SUBSCRIPTION_KEY):
+            try:
+                key = await async_fetch_subscription_key(get_async_client(self.hass))
+            except VattenfallApiError:
+                return config, {CONF_SUBSCRIPTION_KEY: "subscription_key_not_found"}
+            config = {**config, CONF_SUBSCRIPTION_KEY: key}
+
         errors: dict[str, str] = {}
         client = VattenfallApiClient(hass=self.hass, config=config)
         try:
@@ -54,7 +69,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "unknown"
         finally:
             await client.async_close()
-        return errors
+        return config, errors
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the initial step."""
@@ -64,11 +79,11 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(user_input[CONF_METERING_POINT_ID])
             self._abort_if_unique_id_configured()
 
-            errors = await self._async_validate(user_input)
+            config, errors = await self._async_validate(user_input)
             if not errors:
                 return self.async_create_entry(
                     title=user_input.get(CONF_NAME, DEFAULT_NAME),
-                    data=user_input,
+                    data=config,
                 )
 
         schema = vol.Schema(
@@ -77,7 +92,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_CUSTOMER_ID): str,
                 vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
                 vol.Required(CONF_METERING_POINT_ID): str,
-                vol.Required(CONF_SUBSCRIPTION_KEY): str,
+                vol.Optional(CONF_SUBSCRIPTION_KEY): str,
                 vol.Optional(
                     CONF_TEMPERATURE_AREA_CODE,
                     default=DEFAULT_TEMPERATURE_AREA_CODE,
@@ -127,17 +142,17 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors = await self._async_validate({**entry.data, **user_input})
+            # A blank key must trigger detection, not fall back to the saved one.
+            merged = {**entry.data, CONF_SUBSCRIPTION_KEY: None, **user_input}
+            config, errors = await self._async_validate(merged)
             if not errors:
-                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+                return self.async_update_reload_and_abort(entry, data=config)
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_CUSTOMER_ID, default=entry.data[CONF_CUSTOMER_ID]): str,
                 vol.Required(CONF_PASSWORD): _PASSWORD_SELECTOR,
-                vol.Required(
-                    CONF_SUBSCRIPTION_KEY, default=entry.data[CONF_SUBSCRIPTION_KEY]
-                ): str,
+                vol.Optional(CONF_SUBSCRIPTION_KEY): str,
                 **(extra_fields or {}),
             }
         )

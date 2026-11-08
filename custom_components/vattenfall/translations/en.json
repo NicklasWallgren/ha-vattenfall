@@ -11,6 +11,9 @@
           "metering_point_id": "Metering point ID",
           "subscription_key": "Subscription key",
           "temperature_area_code": "Temperature area code"
+        },
+        "data_description": {
+          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website."
         }
       },
       "reauth_confirm": {
@@ -20,6 +23,9 @@
           "customer_id": "Customer ID",
           "password": "Password",
           "subscription_key": "Subscription key"
+        },
+        "data_description": {
+          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website."
         }
       },
       "reconfigure": {
@@ -30,12 +36,16 @@
           "password": "Password",
           "subscription_key": "Subscription key",
           "temperature_area_code": "Temperature area code"
+        },
+        "data_description": {
+          "subscription_key": "Leave blank to detect it automatically from Vattenfall's website."
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
+      "subscription_key_not_found": "Could not detect the subscription key. Enter it manually.",
       "unknown": "Unexpected error"
     },
     "abort": {
