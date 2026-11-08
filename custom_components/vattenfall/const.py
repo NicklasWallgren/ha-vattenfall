@@ -16,7 +16,7 @@ CONF_TEMPERATURE_AREA_CODE = "temperature_area_code"
 DEFAULT_NAME = "Vattenfall"
 DEFAULT_SCAN_INTERVAL = timedelta(hours=1)
 DEFAULT_BASE_URL = "https://services.vattenfalleldistribution.se"
-DEFAULT_TEMPERATURE_AREA_CODE = "14132"
+DEFAULT_TEMPERATURE_AREA_CODE = "11120"
 DEFAULT_AUTH_START_URL = (
     "https://services.vattenfalleldistribution.se/auth/login"
     "?returnUrl=https%3a%2f%2fwww.vattenfalleldistribution.se%2flogga-in%2f"

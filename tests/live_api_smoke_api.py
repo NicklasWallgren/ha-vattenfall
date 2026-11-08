@@ -183,8 +183,8 @@ async def _run() -> int:
     )
     temperature_area_code = (
         os.getenv("VATTENFALL_TEMPERATURE_AREA_CODE")
-        or input("Temperature area code [14132]: ").strip()
-        or "14132"
+        or input("Temperature area code [11120]: ").strip()
+        or "11120"
     )
     subscription_key = (
         os.getenv("VATTENFALL_SUBSCRIPTION_KEY")
