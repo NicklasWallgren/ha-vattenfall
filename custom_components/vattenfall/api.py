@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
@@ -38,6 +38,14 @@ _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
+
+
+_T = TypeVar("_T")
+
+
+def _first_present(item: dict[str, Any], *keys: str) -> Any:
+    """Return the first non-None value for keys, keeping falsy values such as 0."""
+    return next((item[key] for key in keys if item.get(key) is not None), None)
 
 
 class VattenfallApiError(Exception):
@@ -127,64 +135,67 @@ class VattenfallApiClient:
         self,
         start_date: date,
         end_date: date,
+        allow_stub: bool = True,
     ) -> list[ConsumptionPoint]:
         """Fetch daily measured consumption from the API."""
-        try:
-            await self.async_authenticate()
-            return await self._async_fetch_daily_consumption(start_date, end_date)
-        except VattenfallAuthError:
-            await self.async_authenticate(force=True)
-            return await self._async_fetch_daily_consumption(start_date, end_date)
-        except (VattenfallApiError, httpx.HTTPError) as err:
-            if self._allow_stub_data:
-                _LOGGER.warning("Consumption fetch failed, falling back to stub data: %s", err)
-                return self._build_stub_points(start_date, end_date)
-            if isinstance(err, VattenfallApiError):
-                raise
-            raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
+        return await self._async_fetch_with_auth(
+            "Consumption",
+            lambda: self._async_fetch_daily_consumption(start_date, end_date),
+            lambda: self._build_stub_points(start_date, end_date),
+            allow_stub,
+        )
 
     async def async_get_hourly_consumption(
         self,
         start_date: date,
         end_date: date,
         include_load: bool = True,
+        allow_stub: bool = True,
     ) -> list[HourlyConsumptionPoint]:
         """Fetch hourly measured consumption from the API."""
-        try:
-            await self.async_authenticate()
-            return await self._async_fetch_hourly_consumption(
+        return await self._async_fetch_with_auth(
+            "Hourly consumption",
+            lambda: self._async_fetch_hourly_consumption(
                 start_date, end_date, include_load=include_load
-            )
-        except VattenfallAuthError:
-            await self.async_authenticate(force=True)
-            return await self._async_fetch_hourly_consumption(
-                start_date, end_date, include_load=include_load
-            )
-        except (VattenfallApiError, httpx.HTTPError) as err:
-            if self._allow_stub_data:
-                _LOGGER.warning("Hourly consumption fetch failed, falling back to stub data: %s", err)
-                return self._build_stub_hourly_points(start_date, end_date)
-            if isinstance(err, VattenfallApiError):
-                raise
-            raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
+            ),
+            lambda: self._build_stub_hourly_points(start_date, end_date),
+            allow_stub,
+        )
 
     async def async_get_hourly_temperature(
         self,
         start_date: date,
         end_date: date,
         use_cet: bool = True,
+        allow_stub: bool = True,
     ) -> list[HourlyTemperaturePoint]:
         """Fetch hourly temperature from the API."""
+        return await self._async_fetch_with_auth(
+            "Hourly temperature",
+            lambda: self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet),
+            lambda: self._build_stub_hourly_temperature_points(start_date, end_date),
+            allow_stub,
+        )
+
+    async def _async_fetch_with_auth(
+        self,
+        label: str,
+        fetch: Callable[[], Awaitable[_T]],
+        build_stub: Callable[[], _T],
+        allow_stub: bool,
+    ) -> _T:
+        """Run fetch, logging in again once if the session was rejected."""
         try:
-            await self.async_authenticate()
-            return await self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet)
-        except VattenfallAuthError:
-            await self.async_authenticate(force=True)
-            return await self._async_fetch_hourly_temperature(start_date, end_date, use_cet=use_cet)
+            try:
+                await self.async_authenticate()
+                return await fetch()
+            except VattenfallAuthError:
+                await self.async_authenticate(force=True)
+                return await fetch()
         except (VattenfallApiError, httpx.HTTPError) as err:
-            if self._allow_stub_data:
-                _LOGGER.warning("Hourly temperature fetch failed, falling back to stub data: %s", err)
-                return self._build_stub_hourly_temperature_points(start_date, end_date)
+            if self._allow_stub_data and allow_stub:
+                _LOGGER.warning("%s fetch failed, falling back to stub data: %s", label, err)
+                return build_stub()
             if isinstance(err, VattenfallApiError):
                 raise
             raise VattenfallApiError(f"Network error while calling Vattenfall API: {err}") from err
@@ -386,10 +397,6 @@ class VattenfallApiClient:
         if points:
             return points
 
-        if self._allow_stub_data:
-            _LOGGER.warning("Unexpected API payload shape, falling back to stub data")
-            return self._build_stub_points(start_date, end_date)
-
         raise VattenfallApiError("Unexpected API payload shape; no points extracted")
 
     async def _async_fetch_hourly_consumption(
@@ -444,10 +451,6 @@ class VattenfallApiClient:
         if points:
             return points
 
-        if self._allow_stub_data:
-            _LOGGER.warning("Unexpected hourly API payload shape, falling back to stub data")
-            return self._build_stub_hourly_points(start_date, end_date)
-
         raise VattenfallApiError("Unexpected hourly API payload shape; no points extracted")
 
     async def _async_fetch_hourly_temperature(
@@ -500,10 +503,6 @@ class VattenfallApiClient:
         points = self._extract_hourly_temperature_points(payload)
         if points:
             return points
-
-        if self._allow_stub_data:
-            _LOGGER.warning("Unexpected hourly temperature API payload shape, falling back to stub data")
-            return self._build_stub_hourly_temperature_points(start_date, end_date)
 
         raise VattenfallApiError("Unexpected hourly temperature API payload shape; no points extracted")
 
@@ -684,21 +683,9 @@ class VattenfallApiClient:
 
         points: list[ConsumptionPoint] = []
         for item in raw_points:
-            day = (
-                item.get("date")
-                or item.get("Date")
-                or item.get("period")
-                or item.get("Period")
-                or item.get("from")
-                or item.get("From")
-            )
-            value = (
-                item.get("value")
-                or item.get("Value")
-                or item.get("consumption")
-                or item.get("Consumption")
-                or item.get("quantity")
-                or item.get("Quantity")
+            day = _first_present(item, "date", "Date", "period", "Period", "from", "From")
+            value = _first_present(
+                item, "value", "Value", "consumption", "Consumption", "quantity", "Quantity"
             )
 
             try:
@@ -722,21 +709,9 @@ class VattenfallApiClient:
 
         points: list[HourlyConsumptionPoint] = []
         for item in raw_points:
-            date_time = (
-                item.get("date")
-                or item.get("Date")
-                or item.get("period")
-                or item.get("Period")
-                or item.get("from")
-                or item.get("From")
-            )
-            value = (
-                item.get("consumption")
-                or item.get("Consumption")
-                or item.get("value")
-                or item.get("Value")
-                or item.get("quantity")
-                or item.get("Quantity")
+            date_time = _first_present(item, "date", "Date", "period", "Period", "from", "From")
+            value = _first_present(
+                item, "consumption", "Consumption", "value", "Value", "quantity", "Quantity"
             )
             status = item.get("status") or item.get("Status")
 

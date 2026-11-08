@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -564,6 +564,48 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
             client = api.VattenfallApiClient(hass=object(), config=_base_config())
             with self.assertRaises(api.VattenfallAuthError):
                 await client.async_authenticate(force=True)
+
+    def test_extract_points_keeps_zero_readings(self) -> None:
+        client = api.VattenfallApiClient(hass=object(), config=_base_config())
+
+        daily = client._extract_points([{"date": "2026-03-01", "value": 0}])
+        hourly = client._extract_hourly_points(
+            {"consumption": [{"date": "2026-03-01T00:00:00", "consumption": 0.0}]}
+        )
+
+        self.assertEqual([point.value_kwh for point in daily], [0.0])
+        self.assertEqual([point.value_kwh for point in hourly], [0.0])
+
+    async def test_network_error_after_relogin_is_wrapped(self) -> None:
+        client = api.VattenfallApiClient(hass=object(), config=_base_config())
+        fetch = AsyncMock(
+            side_effect=[api.VattenfallAuthError("expired"), api.httpx.ConnectError("down")]
+        )
+
+        with (
+            patch.object(client, "async_authenticate", AsyncMock()),
+            patch.object(client, "_async_fetch_daily_consumption", fetch),
+            self.assertRaises(api.VattenfallApiError),
+        ):
+            await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
+
+    async def test_stub_fallback_can_be_refused_per_call(self) -> None:
+        client = api.VattenfallApiClient(
+            hass=object(), config={**_base_config(), "allow_stub_data": True}
+        )
+        fetch = AsyncMock(side_effect=api.VattenfallApiError("down"))
+
+        with (
+            patch.object(client, "async_authenticate", AsyncMock()),
+            patch.object(client, "_async_fetch_daily_consumption", fetch),
+        ):
+            stubbed = await client.async_get_daily_consumption(date(2026, 3, 1), date(2026, 3, 1))
+            self.assertEqual(len(stubbed), 1)
+
+            with self.assertRaises(api.VattenfallApiError):
+                await client.async_get_daily_consumption(
+                    date(2026, 3, 1), date(2026, 3, 1), allow_stub=False
+                )
 
 
 if __name__ == "__main__":

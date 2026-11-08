@@ -12,7 +12,6 @@ from homeassistant.data_entry_flow import FlowResult
 
 from .api import VattenfallApiClient, VattenfallApiError, VattenfallAuthError
 from .const import (
-    CONF_ALLOW_STUB_DATA,
     CONF_CUSTOMER_ID,
     CONF_METERING_POINT_ID,
     CONF_PASSWORD,
@@ -44,11 +43,9 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 yesterday = today - timedelta(days=1)
                 await client.async_get_daily_consumption(yesterday, today)
             except VattenfallAuthError:
-                if not user_input.get(CONF_ALLOW_STUB_DATA, False):
-                    errors["base"] = "invalid_auth"
+                errors["base"] = "invalid_auth"
             except VattenfallApiError:
-                if not user_input.get(CONF_ALLOW_STUB_DATA, False):
-                    errors["base"] = "cannot_connect"
+                errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
                 errors["base"] = "unknown"
             finally:
@@ -71,7 +68,6 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TEMPERATURE_AREA_CODE,
                     default=DEFAULT_TEMPERATURE_AREA_CODE,
                 ): str,
-                vol.Optional(CONF_ALLOW_STUB_DATA, default=False): bool,
             }
         )
 

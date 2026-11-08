@@ -10,8 +10,7 @@
           "password": "Password",
           "metering_point_id": "Metering point ID",
           "subscription_key": "Subscription key",
-          "temperature_area_code": "Temperature area code",
-          "allow_stub_data": "Allow stub data when API/auth fails"
+          "temperature_area_code": "Temperature area code"
         }
       }
     },
