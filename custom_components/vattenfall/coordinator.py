@@ -46,8 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 _API_TIMEZONE = zoneinfo.ZoneInfo("Europe/Stockholm")
 _CHUNK_MONTHS = 3
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-# The day the clocks go forward has 23 hours.
-_MIN_HOURS_IN_FULL_DAY = 23
 
 
 def _date_range_chunks(start: date, end: date) -> list[tuple[date, date]]:
@@ -69,6 +67,13 @@ def _day_start(value: str) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=_API_TIMEZONE)
 
 
+def _hours_in_day(day: str) -> int:
+    """Return the length of a local day in hours, which is 23 or 25 on DST changes."""
+    start = _day_start(day)
+    end = _day_start((start.date() + timedelta(days=1)).isoformat())
+    return round((end.timestamp() - start.timestamp()) / 3600)
+
+
 def _hourly_timestamps(date_times: list[str]) -> list[float]:
     """Convert API local times to UTC timestamps, keeping the repeated DST hour apart."""
     timestamps: list[float] = []
@@ -85,7 +90,7 @@ def _latest_day(date_times: list[str], before: date) -> str | None:
     """Return the newest day before the given date with hourly data, preferring full days."""
     counts = Counter(value[:10] for value in date_times)
     days = [day for day in counts if day < before.isoformat()]
-    full_days = [day for day in days if counts[day] >= _MIN_HOURS_IN_FULL_DAY]
+    full_days = [day for day in days if counts[day] >= _hours_in_day(day)]
     return max(full_days or days, default=None)
 
 

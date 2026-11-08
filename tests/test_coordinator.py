@@ -72,6 +72,39 @@ class HelperTests(unittest.TestCase):
             "2026-03-01",
         )
 
+    def test_latest_day_rejects_ordinary_day_missing_one_hour(self) -> None:
+        full_day = [f"2026-03-01T{hour:02d}:00:00" for hour in range(24)]
+        short_day = [f"2026-03-02T{hour:02d}:00:00" for hour in range(24) if hour != 15]
+
+        self.assertEqual(
+            coordinator_mod._latest_day(full_day + short_day, before=date(2026, 3, 3)),
+            "2026-03-01",
+        )
+
+    def test_latest_day_accepts_complete_spring_day(self) -> None:
+        full_day = [f"2026-03-28T{hour:02d}:00:00" for hour in range(24)]
+        spring_day = [f"2026-03-29T{hour:02d}:00:00" for hour in range(24) if hour != 2]
+
+        self.assertEqual(
+            coordinator_mod._latest_day(full_day + spring_day, before=date(2026, 3, 30)),
+            "2026-03-29",
+        )
+
+    def test_latest_day_requires_all_25_hours_on_fall_back_day(self) -> None:
+        full_day = [f"2026-10-24T{hour:02d}:00:00" for hour in range(24)]
+        hours = [0, 1, 2, 2, *range(3, 24)]
+        fall_back_day = [f"2026-10-25T{hour:02d}:00:00" for hour in hours]
+        short_day = [value for value in fall_back_day if value[11:13] not in ("10", "11")]
+
+        self.assertEqual(
+            coordinator_mod._latest_day(full_day + fall_back_day, before=date(2026, 10, 26)),
+            "2026-10-25",
+        )
+        self.assertEqual(
+            coordinator_mod._latest_day(full_day + short_day, before=date(2026, 10, 26)),
+            "2026-10-24",
+        )
+
     def test_latest_day_falls_back_to_partial_day_then_none(self) -> None:
         self.assertEqual(
             coordinator_mod._latest_day(["2026-03-02T00:00:00"], before=date(2026, 3, 3)),
