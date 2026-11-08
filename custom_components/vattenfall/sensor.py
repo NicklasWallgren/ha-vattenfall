@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -12,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -39,6 +40,7 @@ class VattenfallSensorEntityDescription(SensorEntityDescription):
 
     value_key: str
     attribute_group: str = "daily"  # "daily" | "hourly" | "temperature"
+    last_reset_key: str | None = None
 
 
 SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
@@ -50,6 +52,7 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
         value_key="latest_day_kwh",
+        last_reset_key="latest_day_reset",
         icon="mdi:lightning-bolt",
         attribute_group="daily",
     ),
@@ -61,6 +64,7 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
         value_key="month_to_date_kwh",
+        last_reset_key="month_to_date_reset",
         icon="mdi:calendar-month",
         attribute_group="daily",
     ),
@@ -69,8 +73,7 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         translation_key="average_daily",
         name="Average daily consumption",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.MEASUREMENT,
         value_key="average_daily_kwh",
         icon="mdi:chart-line",
         attribute_group="daily",
@@ -93,6 +96,7 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
         value_key="today_total_kwh",
+        last_reset_key="hourly_latest_day_reset",
         icon="mdi:calendar-today",
         attribute_group="hourly",
     ),
@@ -104,6 +108,16 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_key="today_peak_hour_kwh",
         icon="mdi:chart-bell-curve-cumulative",
+        attribute_group="hourly",
+    ),
+    VattenfallSensorEntityDescription(
+        key="latest_reading",
+        translation_key="latest_reading",
+        name="Latest consumption reading",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_key="latest_reading",
+        icon="mdi:clock-check-outline",
         attribute_group="hourly",
     ),
     VattenfallSensorEntityDescription(
@@ -192,16 +206,22 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
         )
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | datetime | None:
         """Return sensor value."""
         value: Any = self.coordinator.data.get(self.entity_description.value_key)
-        if value is None:
-            return None
+        if value is None or isinstance(value, datetime):
+            return value
 
         try:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Return when the current metering period started."""
+        key = self.entity_description.last_reset_key
+        return self.coordinator.data.get(key) if key else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -221,11 +241,13 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
                 "end_date": data.get(ATTR_HOURLY_END_DATE),
                 "points_count": len(data.get(ATTR_HOURLY_POINTS, [])),
                 "peak_hour_time": data.get("today_peak_hour_time"),
+                "latest_day": data.get("hourly_latest_day"),
             }
         if group == "temperature":
             return {
                 "start_date": data.get(ATTR_TEMPERATURE_START_DATE),
                 "end_date": data.get(ATTR_TEMPERATURE_END_DATE),
                 "points_count": len(data.get(ATTR_TEMPERATURE_POINTS, [])),
+                "latest_day": data.get("temperature_latest_day"),
             }
         return {}

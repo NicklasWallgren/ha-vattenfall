@@ -10,8 +10,26 @@
           "password": "Password",
           "metering_point_id": "Metering point ID",
           "subscription_key": "Subscription key",
-          "temperature_area_code": "Temperature area code",
-          "allow_stub_data": "Allow stub data when API/auth fails"
+          "temperature_area_code": "Temperature area code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to Vattenfall again",
+        "description": "Vattenfall rejected the saved login. Enter your current details.",
+        "data": {
+          "customer_id": "Customer ID",
+          "password": "Password",
+          "subscription_key": "Subscription key"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Vattenfall settings",
+        "description": "Change your Vattenfall login or temperature area.",
+        "data": {
+          "customer_id": "Customer ID",
+          "password": "Password",
+          "subscription_key": "Subscription key",
+          "temperature_area_code": "Temperature area code"
         }
       }
     },
@@ -21,7 +39,9 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This metering point is already configured"
+      "already_configured": "This metering point is already configured",
+      "reauth_successful": "Vattenfall login updated",
+      "reconfigure_successful": "Vattenfall settings updated"
     }
   },
   "entity": {
@@ -43,6 +63,9 @@
       },
       "today_peak_hour": {
         "name": "Latest day peak hour"
+      },
+      "latest_reading": {
+        "name": "Latest consumption reading"
       },
       "latest_temperature": {
         "name": "Latest outdoor temperature"

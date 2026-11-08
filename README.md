@@ -8,19 +8,20 @@ dashboards, Energy, and automations.
 
 ## Features
 
-- Config flow setup from Home Assistant UI
+- Config flow setup from Home Assistant UI, with re-authentication and reconfigure support
 - Hourly data updates via coordinator
 - Consumption sensors:
   - Latest day consumption
   - Month-to-date consumption
   - Average daily consumption
   - Latest hour consumption
-  - Today total consumption
-  - Today peak hour consumption
+  - Latest day hourly total
+  - Latest day peak hour
+  - Latest consumption reading (timestamp of the newest data from Vattenfall)
   - Latest outdoor temperature
-  - Today average temperature
-  - Today minimum temperature
-  - Today maximum temperature
+  - Latest day average temperature
+  - Latest day minimum temperature
+  - Latest day maximum temperature
 - HACS compatible
 
 ## Installation
@@ -81,6 +82,8 @@ frontend uses it internally. You can retrieve it yourself using your browser's d
 ## Notes
 
 - The integration is configured to update consumption data every hour.
+- Vattenfall publishes data about once a day. "Latest day" sensors show the newest full day before today, named in their
+  `latest_day` attribute.
 - Runtime dependency `httpx[http2]` is declared in `manifest.json` and installed by Home Assistant.
 - Debug logs can include sensitive data (credentials/cookies/tokens). Do not share raw debug output.
 
