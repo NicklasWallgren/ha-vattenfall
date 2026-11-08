@@ -63,14 +63,15 @@ Install this integration with the following button:
    - `Customer ID`
    - `Password`
    - `Metering point ID`
-   - `Subscription key`
+   - `Subscription key` (optional, leave blank to detect it automatically)
    - `Temperature area code` (defaults to `14132`)
 
 ### Getting a subscription key
 
-The integration authenticates against Vattenfall's API, which requires an Azure API Management
-`Ocp-Apim-Subscription-Key` header. This key isn't issued anywhere in account self-service — the web portal's
-frontend uses it internally. You can retrieve it yourself using your browser's developer tools (see
+Leave `Subscription key` blank and the integration reads it from Vattenfall's public website. If you enter nothing
+when re-authenticating or reconfiguring, it detects the current key again.
+
+If detection fails, you can find the `Ocp-Apim-Subscription-Key` value yourself with your browser's developer tools (see
 [issue #1](https://github.com/NicklasWallgren/ha-vattenfall/issues/1)):
 
 1. Log in to [vattenfalleldistribution.se](https://vattenfalleldistribution.se) in your browser.

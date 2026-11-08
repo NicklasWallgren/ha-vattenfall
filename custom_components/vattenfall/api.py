@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import logging
+import re
 from typing import Any, Awaitable, Callable, TypeVar
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -39,6 +40,8 @@ _DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 )
 
+
+_SUBSCRIPTION_KEY_META = re.compile(r'<meta\s+name="subscription-key"\s+content="([0-9a-fA-F]{32})"')
 
 _T = TypeVar("_T")
 
@@ -83,6 +86,26 @@ class HourlyTemperaturePoint:
 
     date_time: str
     value_c: float
+
+
+async def async_fetch_subscription_key(client: httpx.AsyncClient) -> str:
+    """Read the subscription key that Vattenfall's website publishes in its page source."""
+    try:
+        response = await client.get(
+            f"{_WEB_ORIGIN}/",
+            headers={"user-agent": _DEFAULT_USER_AGENT},
+            follow_redirects=True,
+            timeout=30.0,
+        )
+    except httpx.HTTPError as err:
+        raise VattenfallApiError(f"Network error while reading subscription key: {err}") from err
+
+    match = _SUBSCRIPTION_KEY_META.search(response.text)
+    if match is None:
+        raise VattenfallApiError(
+            f"No subscription key on Vattenfall's website (HTTP {response.status_code})"
+        )
+    return match.group(1)
 
 
 class VattenfallApiClient:
