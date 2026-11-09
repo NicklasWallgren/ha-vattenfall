@@ -30,6 +30,9 @@ from .const import (
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
+    ATTR_TRANSFER_FEE_INCL_VAT,
+    ATTR_ENERGY_TAX_INCL_VAT,
+    ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT,
     DOMAIN,
 )
 from .coordinator import VattenfallDataUpdateCoordinator
@@ -189,8 +192,7 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         key="fixed_fee",
         translation_key="fixed_fee",
         name="Fixed fee incl. VAT incl. discount",
-        native_unit_of_measurement="SEK",
-        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="SEK/year",
         value_key="fixed_fee_incl_vat_incl_discount",
         icon="mdi:cash-multiple",
         attribute_group="contract",
@@ -215,9 +217,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class VattenfallSensor(
-    CoordinatorEntity[VattenfallDataUpdateCoordinator], SensorEntity
-):
+class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], SensorEntity):
     """Representation of a Vattenfall sensor."""
 
     entity_description: VattenfallSensorEntityDescription
@@ -289,5 +289,11 @@ class VattenfallSensor(
                 "end_date": data.get(ATTR_TEMPERATURE_END_DATE),
                 "points_count": len(data.get(ATTR_TEMPERATURE_POINTS, [])),
                 "latest_day": data.get("temperature_latest_day"),
+            }
+        if group == "contract":
+            return {
+                "transfer_fee_incl_vat": data.get(ATTR_TRANSFER_FEE_INCL_VAT),
+                "energy_tax_incl_vat": data.get(ATTR_ENERGY_TAX_INCL_VAT),
+                "fixed_fee_incl_vat_incl_discount": data.get(ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT)
             }
         return {}

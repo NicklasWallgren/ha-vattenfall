@@ -49,6 +49,8 @@ _LOGGER = logging.getLogger(__name__)
 _API_TIMEZONE = zoneinfo.ZoneInfo("Europe/Stockholm")
 _CHUNK_MONTHS = 3
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+# Tariffs change roughly once a year, so refreshing them daily is plenty.
+_CONTRACT_CACHE_TTL = timedelta(hours=24)
 
 
 def _date_range_chunks(start: date, end: date) -> list[tuple[date, date]]:
@@ -114,6 +116,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.entry = entry
+        self._contract_cache: dict[str, Any] | None = None
+        self._contract_cache_time: datetime | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data from API."""
@@ -131,7 +135,25 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 temperature_start=hourly_start,
                 temperature_end=hourly_end,
             )
-            data.update(await self._async_fetch_contract_data())
+            try:
+                fee_data = await self._async_fetch_contract_data()
+            except (VattenfallApiError, VattenfallAccessDeniedError) as err:
+                if self._contract_cache is not None:
+                    _LOGGER.warning(
+                        "Could not refresh contract tariff/fee details, using cached values: %s",
+                        err,
+                    )
+                    fee_data = self._contract_cache
+                else:
+                    _LOGGER.warning(
+                        "Could not fetch contract tariff/fee details: %s", err
+                    )
+                    fee_data = {
+                        "transfer_fee_incl_vat": None,
+                        "energy_tax_incl_vat": None,
+                        "fixed_fee_incl_vat_incl_discount": None,
+                    }
+            data.update(fee_data)
             return data
         except VattenfallAccessDeniedError as err:
             raise ConfigEntryAuthFailed(
@@ -143,13 +165,28 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from err
 
     async def _async_fetch_contract_data(self) -> dict[str, Any]:
-        """Fetch contract tariff/fee details and expose them as data keys."""
+        """Fetch contract tariff/fee details, cached with a daily TTL.
+
+        Tariffs rarely change, so this avoids an authenticated API call (and its
+        potential 5xx retry loop) on every hourly refresh.
+        """
+        now = datetime.now(timezone.utc)
+        if (
+            self._contract_cache is not None
+            and self._contract_cache_time is not None
+            and now - self._contract_cache_time < _CONTRACT_CACHE_TTL
+        ):
+            return self._contract_cache
+
         tariff = await self.client.async_get_contract()
-        return {
+        fee_data = {
             "transfer_fee_incl_vat": tariff.transfer_fee_incl_vat,
             "energy_tax_incl_vat": tariff.energy_tax_incl_vat,
             "fixed_fee_incl_vat_incl_discount": tariff.fixed_fee_incl_vat_incl_discount,
         }
+        self._contract_cache = fee_data
+        self._contract_cache_time = now
+        return fee_data
 
     async def async_backfill_range(
         self,

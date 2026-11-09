@@ -250,25 +250,14 @@ class VattenfallApiClient:
                 f"Error while calling Vattenfall API: {err}"
             ) from err
 
-    async def async_get_contract(self) -> ContractTariff:
+    async def async_get_contract(self, allow_stub: bool = True) -> ContractTariff:
         """Fetch contract tariff/fee details from the API."""
-        try:
-            await self.async_authenticate()
-            return await self._async_fetch_contract()
-        except VattenfallAuthError:
-            await self.async_authenticate(force=True)
-            return await self._async_fetch_contract()
-        except (VattenfallApiError, httpx.HTTPError) as err:
-            if self._allow_stub_data:
-                _LOGGER.warning(
-                    "Contract fetch failed, falling back to stub data: %s", err
-                )
-                return self._build_stub_contract()
-            if isinstance(err, VattenfallApiError):
-                raise
-            raise VattenfallApiError(
-                f"Network error while calling Vattenfall API: {err}"
-            ) from err
+        return await self._async_fetch_with_auth(
+            "Contract",
+            self._async_fetch_contract,
+            self._build_stub_contract,
+            allow_stub,
+        )
 
     @property
     def _has_auth_cookies(self) -> bool:
@@ -644,7 +633,12 @@ class VattenfallApiClient:
                 f"Vattenfall API returned HTTP {response.status_code} when fetching contract: {response.text[:200] or '<empty response body>'}"
             )
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError as err:
+            raise VattenfallApiError(
+                f"Failed to parse JSON response from Vattenfall API: {err}"
+            ) from err
         tariff = self._extract_contract_tariff(payload)
         if tariff is not None:
             return tariff
@@ -1071,7 +1065,7 @@ class VattenfallApiClient:
     def _build_stub_contract(self) -> ContractTariff:
         """Build deterministic contract stub data for development/testing."""
         return ContractTariff(
-            transfer_fee_incl_vat=0.445,
-            energy_tax_incl_vat=0.45,
-            fixed_fee_incl_vat_incl_discount=2450.0,
+            transfer_fee_incl_vat=None,
+            energy_tax_incl_vat=None,
+            fixed_fee_incl_vat_incl_discount=None,
         )
