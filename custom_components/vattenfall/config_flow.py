@@ -18,6 +18,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .api import (
+    VattenfallAccessDeniedError,
     VattenfallApiClient,
     VattenfallApiError,
     VattenfallAuthError,
@@ -65,13 +66,18 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize flow state shared between Min energi steps."""
         self._min_energi_input: dict[str, Any] = {}
         self._premises: dict[str, str] = {}
+        self._premise_count = 0
 
     async def _async_validate(
         self, config: dict[str, Any]
     ) -> tuple[dict[str, Any], dict[str, str]]:
         """Try the settings against Vattenfall, returning them completed plus any form errors."""
         if _is_min_energi(config):
-            _, errors = await self._async_validate_min_energi(config)
+            premises, errors = await self._async_validate_min_energi(config)
+            premise_id = config.get(CONF_METERING_POINT_ID)
+            if not errors and premise_id not in {premise["id"] for premise in premises}:
+                # Valid login, but to an account that cannot read this entry's premise.
+                errors = {"base": "premise_not_found"}
             return config, errors
 
         if not config.get(CONF_SUBSCRIPTION_KEY):
@@ -109,9 +115,10 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await client.async_authenticate(force=True)
             premises = await client.async_get_premises()
-        except VattenfallAuthError:
+        except VattenfallAccessDeniedError:
             errors["base"] = "invalid_auth"
         except VattenfallApiError:
+            # Includes other login failures, such as outages, rate limits or the geo-block.
             errors["base"] = "cannot_connect"
         except Exception:  # pylint: disable=broad-except
             errors["base"] = "unknown"
@@ -186,6 +193,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return self.async_abort(reason="already_configured")
 
                 self._min_energi_input = config
+                self._premise_count = len(premises)
                 return await self.async_step_premise()
 
         schema = vol.Schema(
@@ -210,7 +218,8 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             name = self._min_energi_input.get(CONF_NAME, DEFAULT_NAME)
-            title = f"{name} ({self._premises[premise_id]})" if len(self._premises) > 1 else name
+            # Count every premise on the account, so the title does not depend on setup order.
+            title = f"{name} ({self._premises[premise_id]})" if self._premise_count > 1 else name
             return self.async_create_entry(
                 title=title,
                 data={

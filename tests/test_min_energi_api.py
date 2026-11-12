@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import importlib
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
+
+import httpx
 
 from test_api_flow import FakeHttpxClient, FakeResponse, api
 
@@ -186,6 +188,68 @@ class TestMinEnergiApi(unittest.IsolatedAsyncioTestCase):
             client._cookies_for_url("https://www.vattenfall.se/mina-sidor")[".VFState"], "stale-state"
         )
 
+    async def test_api_request_sends_one_value_per_auth_cookie(self) -> None:
+        """Check the real outgoing header: httpx would otherwise add the whole cookie jar."""
+        sent: list[list[str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "www.vattenfall.se":
+                return httpx.Response(
+                    200,
+                    headers=[
+                        # Host-only cookie left over from before login.
+                        ("set-cookie", ".VFState=stale-state; Path=/"),
+                        ("set-cookie", ".VFState=fresh-state; Domain=.www.vattenfall.se; Path=/"),
+                        ("set-cookie", ".VFIdToken=id-token; Domain=.www.vattenfall.se; Path=/"),
+                    ],
+                )
+            sent.append(request.headers.get_list("cookie"))
+            return httpx.Response(200, json=[])
+
+        client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            await client._client.get("https://www.vattenfall.se/mina-sidor")
+            await client._async_api_get("my-premises-select", {}, "premises")
+        finally:
+            await client.async_close()
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(len(sent[0]), 1)
+        self.assertEqual(
+            sorted(sent[0][0].split("; ")), [".VFIdToken=id-token", ".VFState=fresh-state"]
+        )
+
+    async def test_login_start_sends_no_empty_cookie_header(self) -> None:
+        """Like a browser, send no Cookie header rather than an empty one."""
+        session = FakeHttpxClient(_login_routes())
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            await client.async_authenticate(force=True)
+
+        first_call = session.calls[0]
+        self.assertEqual(first_call[1], const.MIN_ENERGI_AUTH_START_URL)
+        self.assertNotIn("cookie", first_call[2]["headers"])
+        for _, _, kwargs in session.calls:
+            self.assertNotEqual(kwargs["headers"].get("cookie"), "")
+
+    def test_client_side_redirect_prefers_redirect_over_unrelated_form(self) -> None:
+        base = "https://www.vattenfall.se/iam/se/login"
+        search_form = '<form action="/sok" method="get"><input name="q" value="" /></form>'
+        script = f"<script>window.location = '{AUTHORIZE_URL}';</script>"
+
+        self.assertEqual(
+            min_energi_api._client_side_redirect(search_form + script, base),
+            ("GET", AUTHORIZE_URL, None),
+        )
+        self.assertIsNone(
+            min_energi_api._client_side_redirect(
+                '<body onload="document.forms[0].submit()">' + search_form * 2, base
+            )
+        )
+        self.assertIsNone(min_energi_api._client_side_redirect(search_form, base))
+
     def test_client_side_redirect_detects_meta_refresh_and_js(self) -> None:
         base = "https://www.vattenfall.se/iam/se/login"
         meta = '<meta http-equiv="refresh" content="0;url=/next?a=1&amp;b=2">'
@@ -236,7 +300,8 @@ class TestMinEnergiApi(unittest.IsolatedAsyncioTestCase):
             [("2026-10-22T00:00:00", 1.25), ("2026-10-22T01:00:00", 0.5)],
         )
         api_call = session.calls[-1]
-        self.assertEqual(api_call[2]["cookies"], {".VFIdToken": "id-token", ".VFState": "state"})
+        self.assertEqual(api_call[2]["headers"]["cookie"], ".VFIdToken=id-token; .VFState=state")
+        self.assertIsNone(api_call[2].get("cookies"))
 
     async def test_daily_consumption_and_temperature(self) -> None:
         next_day = DAY_EPOCH + 86400
@@ -363,6 +428,88 @@ class TestMinEnergiApi(unittest.IsolatedAsyncioTestCase):
             points = await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 22))
 
         self.assertEqual([(p.date_time, p.value_kwh) for p in points], [("2026-10-22T00:00:00", 0.4)])
+
+    async def test_failed_range_lookup_fails_the_fetch(self) -> None:
+        routes = _login_routes()
+        routes[("GET", RANGES_URL)] = [FakeResponse(status=404, text_body="not found")]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            with self.assertRaisesRegex(api.VattenfallApiError, "measurement ranges"):
+                await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 22))
+
+        self.assertFalse(any("/measurement?" in c[1] for c in session.calls))
+
+    async def test_failed_range_refresh_keeps_the_verified_range(self) -> None:
+        routes = _login_routes()
+        routes[("GET", RANGES_URL)] = [
+            _ranges(DAY_EPOCH),
+            FakeResponse(status=404, text_body="not found"),
+        ]
+        url = _measurement_url("Hourly", "ElectricityConsumption", DAY_EPOCH, DAY_EPOCH)
+        routes[("GET", url)] = [
+            FakeResponse(json_body={"items": [_item(22, 0, 0.4)]}),
+            FakeResponse(json_body={"items": [_item(22, 0, 0.4)]}),
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 25))
+            self.mock_now.return_value = LATER + timedelta(hours=1)
+            # The refresh fails, so the request still ends on the last verified day.
+            points = await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 25))
+
+        self.assertEqual([p.value_kwh for p in points], [0.4])
+        self.assertEqual(sum(1 for c in session.calls if c[1] == RANGES_URL), 2)
+
+    async def test_missing_range_entry_means_no_data(self) -> None:
+        routes = _login_routes()
+        routes[("GET", RANGES_URL)] = [
+            FakeResponse(
+                json_body=[
+                    {"resolution": "Daily", "measurementType": "ElectricityConsumption",
+                     "lastAvailableMeasurementDate": DAY_EPOCH},
+                    {"resolution": "Hourly", "measurementType": "ElectricityConsumption",
+                     "lastAvailableMeasurementDate": None},
+                    {"measurementType": "Temperature"},
+                ]
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            hourly = await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 22))
+            temperature = await client.async_get_hourly_temperature(
+                date(2026, 10, 22), date(2026, 10, 22)
+            )
+
+        self.assertEqual((hourly, temperature), ([], []))
+        self.assertFalse(any("/measurement?" in c[1] for c in session.calls))
+
+    async def test_malformed_items_are_skipped(self) -> None:
+        routes = _login_routes()
+        routes[("GET", _measurement_url("Hourly", "ElectricityConsumption", DAY_EPOCH, DAY_EPOCH))] = [
+            FakeResponse(
+                json_body={
+                    "items": [
+                        {"measurement": {"value": 1.0}},
+                        {"year": 2026, "month": 10, "day": None, "measurement": {"value": 2.0}},
+                        "not an item",
+                        _item(22, 3, 0.3),
+                    ]
+                }
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            points = await client.async_get_hourly_consumption(date(2026, 10, 22), date(2026, 10, 22))
+
+        self.assertEqual([(p.date_time, p.value_kwh) for p in points], [("2026-10-22T03:00:00", 0.3)])
 
     async def test_unauthorized_response_triggers_relogin(self) -> None:
         routes = _login_routes(logins=2)

@@ -194,7 +194,8 @@ async def async_setup_entry(
     entities = [
         VattenfallSensor(coordinator=coordinator, entry=entry, description=description)
         for description in SENSORS
-        if description.attribute_group != "quarter_hour" or coordinator.client.supports_quarter_hour
+        if description.attribute_group != "quarter_hour"
+        or getattr(coordinator.client, "supports_quarter_hour", False)
     ]
     async_add_entities(entities)
 

@@ -72,7 +72,8 @@
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
       "subscription_key_not_found": "Could not detect the subscription key. Enter it manually.",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "premise_not_found": "This Vattenfall account has no access to the configured premise. Log in with the account that owns it."
     },
     "abort": {
       "already_configured": "This metering point is already configured",

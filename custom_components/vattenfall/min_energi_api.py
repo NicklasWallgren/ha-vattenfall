@@ -7,6 +7,7 @@ the `.VFIdToken`/`.VFState` cookies only (no subscription key).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 import html
 import logging
@@ -30,6 +31,8 @@ from .api import (
 from .const import (
     ACCOUNT_TYPE_MIN_ENERGI,
     CONF_ACCOUNT_TYPE,
+    CONF_METERING_POINT_ID,
+    CONF_SUBSCRIPTION_KEY,
     MIN_ENERGI_API_BASE_URL,
     MIN_ENERGI_AUTH_START_URL,
 )
@@ -56,12 +59,16 @@ _RESOLUTION_PERIODS = {
     "Hourly": timedelta(hours=1),
     "Daily": timedelta(days=1),
 }
+# Explicit redirects: a meta refresh or a JavaScript location change.
 _CLIENT_REDIRECT_PATTERNS = (
     r"<meta[^>]+http-equiv=[\"']?refresh[\"']?[^>]+url=([^\"'>]+)",
     r"location(?:\.href)?\s*=\s*[\"']([^\"']+)[\"']",
     r"location\.(?:replace|assign)\(\s*[\"']([^\"']+)[\"']",
-    r"[\"'](https?://[^\"']*/oauth2/authorize[^\"']*)[\"']",
 )
+# Last resort: any quoted OAuth authorize URL on the page.
+_AUTHORIZE_URL_PATTERN = r"[\"'](https?://[^\"']*/oauth2/authorize[^\"']*)[\"']"
+# Form actions that belong to the login hand-over.
+_AUTH_FORM_ACTION = re.compile(r"/(?:oauth2|authorize|commonauth|authcallback|signin)", re.I)
 
 _PREMISES_PARAMS = {
     "includeFutureContracts": "true",
@@ -84,26 +91,51 @@ def _client_side_redirect(
 ) -> tuple[str, str, dict[str, str] | None] | None:
     """Find a browser-side redirect in an HTML page.
 
-    Handles an auto-submitted form, a meta refresh and a JavaScript location change.
+    In order of preference: a meta refresh or JavaScript location change, an
+    auto-submitted login hand-over form, then any OAuth authorize URL on the page.
+    Unrelated forms (search, consent, newsletter) are ignored.
     Returns `(method, url, form_fields)` or None.
     """
-    form = re.search(r"<form\b([^>]*)>(.*?)</form>", body, re.S | re.I)
-    if form:
-        attrs = dict(re.findall(r'(\w+)\s*=\s*["\']([^"\']*)["\']', form.group(1)))
+    for pattern in _CLIENT_REDIRECT_PATTERNS:
+        match = re.search(pattern, body, re.I)
+        if match:
+            return "GET", _page_url(match.group(1), base_url), None
+
+    form = _auth_form(body, base_url)
+    if form is not None:
+        return form
+
+    match = re.search(_AUTHORIZE_URL_PATTERN, body, re.I)
+    if match:
+        return "GET", _page_url(match.group(1), base_url), None
+    return None
+
+
+def _page_url(raw: str, base_url: str) -> str:
+    """Resolve a URL found in HTML or JavaScript."""
+    return urljoin(base_url, html.unescape(raw).replace("\\/", "/"))
+
+
+def _auth_form(body: str, base_url: str) -> tuple[str, str, dict[str, str]] | None:
+    """Return the login hand-over form, if the page has one.
+
+    A form qualifies when it posts to a login endpoint, or when it is the only form
+    on a page that submits a form by script.
+    """
+    forms = re.findall(r"<form\b([^>]*)>(.*?)</form>", body, re.S | re.I)
+    auto_submit = re.search(r"\.submit\s*\(", body) is not None
+    for form_attrs, form_body in forms:
+        attrs = dict(re.findall(r'(\w+)\s*=\s*["\']([^"\']*)["\']', form_attrs))
+        action = html.unescape(attrs.get("action", ""))
+        if not (_AUTH_FORM_ACTION.search(action) or (auto_submit and len(forms) == 1)):
+            continue
         fields: dict[str, str] = {}
-        for tag in re.findall(r"<input\b[^>]*>", form.group(2), re.I):
+        for tag in re.findall(r"<input\b[^>]*>", form_body, re.I):
             name = re.search(r'\bname\s*=\s*["\']([^"\']*)["\']', tag)
             value = re.search(r'\bvalue\s*=\s*["\']([^"\']*)["\']', tag)
             if name:
                 fields[name.group(1)] = html.unescape(value.group(1)) if value else ""
-        action = urljoin(base_url, html.unescape(attrs.get("action", base_url)))
-        return attrs.get("method", "get").upper(), action, fields
-
-    for pattern in _CLIENT_REDIRECT_PATTERNS:
-        match = re.search(pattern, body, re.I)
-        if match:
-            url = html.unescape(match.group(1)).replace("\\/", "/")
-            return "GET", urljoin(base_url, url), None
+        return attrs.get("method", "get").upper(), urljoin(base_url, action or base_url), fields
     return None
 
 
@@ -111,9 +143,48 @@ class _VattenfallBadRequestError(VattenfallApiError):
     """The API rejected the request (HTTP 400), for example a too large date range."""
 
 
-def _epoch_to_date(epoch: float | None) -> date | None:
+def _epoch_to_date(epoch: Any) -> date | None:
     """Decode an API date (UTC midnight, epoch seconds)."""
-    return None if epoch is None else datetime.fromtimestamp(epoch, timezone.utc).date()
+    if not isinstance(epoch, (int, float)) or isinstance(epoch, bool):
+        return None
+    return datetime.fromtimestamp(epoch, timezone.utc).date()
+
+
+def _parse_measurement_ranges(
+    payload: list[Any],
+) -> dict[tuple[str, str], tuple[date | None, date]]:
+    """Map (resolution, measurement type) to the first and last day with published data.
+
+    Entries without a last available day have no published data, so they are left out.
+    """
+    ranges: dict[tuple[str, str], tuple[date | None, date]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        resolution = item.get("resolution")
+        measurement_type = item.get("measurementType")
+        last_day = _epoch_to_date(item.get("lastAvailableMeasurementDate"))
+        if not isinstance(resolution, str) or not isinstance(measurement_type, str) or last_day is None:
+            continue
+        ranges[(resolution, measurement_type)] = (
+            _epoch_to_date(item.get("firstAvailableMeasurementDate")),
+            last_day,
+        )
+    return ranges
+
+
+def _item_start(item: dict[str, Any]) -> datetime:
+    """Return a measurement item's local wall-clock start time (naive).
+
+    Raises KeyError, TypeError or ValueError for a malformed item.
+    """
+    return datetime(
+        int(item["year"]),
+        int(item["month"]),
+        int(item["day"]),
+        int(item.get("hour") or 0),
+        int(item.get("minute") or 0),
+    )
 
 
 def _epoch_utc_midnight(day: date) -> int:
@@ -129,8 +200,17 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
 
     supports_quarter_hour = True
 
-    def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
-        super().__init__(hass=hass, config=config)
+    def __init__(self, hass: HomeAssistant, config: Mapping[str, Any]) -> None:
+        super().__init__(
+            hass=hass,
+            config={
+                **config,
+                # The setup flow logs in before a premise is picked.
+                CONF_METERING_POINT_ID: config.get(CONF_METERING_POINT_ID, ""),
+                # The selfservice API is authenticated by cookies only.
+                CONF_SUBSCRIPTION_KEY: "",
+            },
+        )
         self._available_days: dict[tuple[str, str], tuple[date | None, date | None]] = {}
         self._ranges_fetched_at: datetime | None = None
 
@@ -145,6 +225,7 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
 
         vattenfall.se sets `.VFState` twice: host-only on www.vattenfall.se before login
         and on `.www.vattenfall.se` after it. Only the latter may reach the API host.
+        When several cookies share a name, the most specific domain and path wins.
         """
         if self._client is None:
             return {}
@@ -153,7 +234,11 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         path = parsed.path or "/"
 
         cookies: dict[str, str] = {}
-        for cookie in self._client.cookies.jar:
+        by_specificity = sorted(
+            self._client.cookies.jar,
+            key=lambda c: (len((c.domain or "").lstrip(".")), len(c.path or "/")),
+        )
+        for cookie in by_specificity:
             if cookie.is_expired():
                 continue
             domain = cookie.domain or ""
@@ -168,6 +253,18 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
                 continue
             cookies[cookie.name] = cookie.value
         return cookies
+
+    def _with_cookie_header(self, url: str, headers: dict[str, str]) -> dict[str, str]:
+        """Return headers carrying exactly the cookies that apply to the URL.
+
+        httpx adds the client's whole cookie jar (host-only cookies included) to every
+        request unless the request already has a Cookie header, so set one. With no
+        applicable cookies, send none, like a browser (the jar is empty at login start).
+        """
+        cookies = self._cookies_for_url(url)
+        if not cookies:
+            return dict(headers)
+        return {**headers, "cookie": "; ".join(f"{name}={value}" for name, value in cookies.items())}
 
     async def async_get_premises(self) -> list[dict[str, Any]]:
         """Return the premises (metering points) available on the account."""
@@ -243,16 +340,16 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         """Send a request and follow its redirect chain, returning the final URL and response."""
         client = await self._async_get_client()
         for hop in range(_MAX_REDIRECTS):
-            cookies = self._cookies_for_url(url)
             step = label if hop == 0 else f"{label} redirect {hop}"
-            self._debug_log_request(method, url, headers, cookies=cookies, data=data)
+            self._debug_log_request(method, url, headers, data=data)
+            request_headers = self._with_cookie_header(url, headers)
             if method == "POST":
                 response = await client.post(
-                    url, data=data, headers=headers, cookies=cookies, follow_redirects=False
+                    url, data=data, headers=request_headers, follow_redirects=False
                 )
             else:
                 response = await client.get(
-                    url, params=data or None, headers=headers, cookies=cookies, follow_redirects=False
+                    url, params=data or None, headers=request_headers, follow_redirects=False
                 )
             self._debug_log_response(step, response)
 
@@ -306,7 +403,9 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         query = "&".join(f"{key}={value}" for key, value in params.items())
         endpoint = f"{MIN_ENERGI_API_BASE_URL}/{path}" + (f"?{query}" if query else "")
 
-        response = await self._async_get_with_retry(endpoint, headers, cookies, label)
+        response = await self._async_get_with_retry(
+            endpoint, self._with_cookie_header(endpoint, headers), None, label
+        )
 
         if response.status_code in (401, 403):
             raise VattenfallAccessDeniedError(
@@ -340,11 +439,14 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
     ) -> list[dict[str, Any]]:
         """Fetch measurement items with a non-null value for an inclusive date range."""
         # Outside the available range the API errors, or pads with zeros/partial values.
-        first_day, last_day = await self._async_available_days(resolution, measurement_type)
+        available = await self._async_available_days(resolution, measurement_type)
+        if available is None:
+            _LOGGER.debug("No published %s on this premise", label)
+            return []
+        first_day, last_day = available
         if first_day is not None:
             start_date = max(start_date, first_day)
-        if last_day is not None:
-            end_date = min(end_date, last_day)
+        end_date = min(end_date, last_day)
 
         raw_items: list[Any] = []
         chunk_start = start_date
@@ -366,13 +468,17 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         period = _RESOLUTION_PERIODS[resolution]
         items: list[dict[str, Any]] = []
         for item in raw_items:
-            value = (item.get("measurement") or {}).get("value") if isinstance(item, dict) else None
-            if not isinstance(value, (int, float)):
+            if not isinstance(item, dict):
                 continue
-            start = datetime(
-                item["year"], item["month"], item["day"], item.get("hour", 0), item.get("minute", 0),
-                tzinfo=_API_TIMEZONE,
-            )
+            measurement = item.get("measurement")
+            value = measurement.get("value") if isinstance(measurement, dict) else None
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                continue
+            try:
+                start = _item_start(item).replace(tzinfo=_API_TIMEZONE)
+            except (KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping malformed %s item: %s", label, item)
+                continue
             if start + period <= now:
                 items.append(item)
         return items
@@ -417,8 +523,13 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
 
     async def _async_available_days(
         self, resolution: str, measurement_type: str
-    ) -> tuple[date | None, date | None]:
-        """Return the first and last day with complete data, from cached measurement ranges."""
+    ) -> tuple[date | None, date] | None:
+        """Return the first and last day with published data, or None when there is none.
+
+        The API pads unpublished periods with zeros, so measurements are only trusted inside
+        a verified range: when the ranges cannot be fetched and none were fetched before,
+        this raises instead of guessing.
+        """
         now = self._now()
         if self._ranges_fetched_at is None or now - self._ranges_fetched_at > _RANGES_TTL:
             try:
@@ -427,21 +538,21 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
                     {},
                     "measurement ranges",
                 )
+                if not isinstance(payload, list):
+                    raise VattenfallApiError("Unexpected measurement ranges payload shape")
             except VattenfallAuthError:
                 raise
             except VattenfallApiError as err:
-                _LOGGER.debug("Could not fetch measurement ranges, not clamping dates: %s", err)
-                return None, None
-            self._available_days = {
-                (item["resolution"], item["measurementType"]): (
-                    _epoch_to_date(item.get("firstAvailableMeasurementDate")),
-                    _epoch_to_date(item.get("lastAvailableMeasurementDate")),
-                )
-                for item in (payload if isinstance(payload, list) else [])
-                if isinstance(item, dict)
-            }
-            self._ranges_fetched_at = now
-        return self._available_days.get((resolution, measurement_type), (None, None))
+                if self._ranges_fetched_at is None:
+                    raise VattenfallApiError(
+                        f"Could not fetch measurement ranges, so published data is unknown: {err}"
+                    ) from err
+                # Keep the last verified ranges; they never extend past what was published.
+                _LOGGER.debug("Could not refresh measurement ranges, keeping previous ones: %s", err)
+            else:
+                self._available_days = _parse_measurement_ranges(payload)
+                self._ranges_fetched_at = now
+        return self._available_days.get((resolution, measurement_type))
 
     @staticmethod
     def _now() -> datetime:
@@ -459,7 +570,7 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         )
         points = [
             ConsumptionPoint(
-                date=date(item["year"], item["month"], item["day"]).isoformat(),
+                date=_item_start(item).date().isoformat(),
                 value_kwh=float(item["measurement"]["value"]),
             )
             for item in items
@@ -543,6 +654,4 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
     @staticmethod
     def _local_time_iso(item: dict[str, Any]) -> str:
         """Format an item's local wall-clock start time like the Eldistribution API does."""
-        return datetime(
-            item["year"], item["month"], item["day"], item.get("hour", 0), item.get("minute", 0)
-        ).isoformat()
+        return _item_start(item).isoformat()
