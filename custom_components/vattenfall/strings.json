@@ -90,6 +90,15 @@
       },
       "today_max_temperature": {
         "name": "Latest day maximum temperature"
+      },
+      "transfer_fee": {
+        "name": "Transfer fee incl. VAT"
+      },
+      "energy_tax": {
+        "name": "Energy tax incl. VAT"
+      },
+      "fixed_fee": {
+        "name": "Fixed fee incl. VAT incl. discount"
       }
     }
   }
