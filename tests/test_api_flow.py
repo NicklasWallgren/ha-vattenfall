@@ -437,7 +437,7 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         routes = _auth_routes()
         consumption_url = (
             "https://services.vattenfalleldistribution.se/consumption/consumption/"
-            "HDG123456789/2026-03-01/2026-03-02/Hourly/Measured?includeLoad= True"
+            "HDG123456789/2026-03-01/2026-03-02/Hourly/Measured?includeLoad=true"
         )
         routes[("GET", consumption_url)] = [
             FakeResponse(
@@ -487,7 +487,7 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         routes = _auth_routes()
         temperature_url = (
             "https://services.vattenfalleldistribution.se/climate/temperature/"
-            "14132/Hourly/2026-03-01/2026-03-02?useCet= True"
+            "14132/Hourly/2026-03-01/2026-03-02?useCet=true"
         )
         routes[("GET", temperature_url)] = [
             FakeResponse(
@@ -534,91 +534,91 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
             FakeResponse(
                 status=200,
                 json_body={
-                  "contractId": "0000000001",
-                  "street": "Exempelvägen 1 A  1001",
-                  "city": "EXEMPELSTAD",
-                  "zipCode": "111 11",
-                  "contractStartDate": "2026-07-01T00:00:00",
-                  "contractEndDate": None,
-                  "earliestContractStartDate": "2026-07-01T00:00:00",
-                  "customersReference": "",
-                  "podId": "XXX735999100000000001",
-                  "fuse": "25 A Grupp",
-                  "mainFuse": "16L",
-                  "hasReactive": False,
-                  "invoiceInterval": 12,
-                  "paymentType": "S",
-                  "paymentMailRecipient": "",
-                  "paymentMethod": "X",
-                  "paymentSlip": "B",
-                  "contractAccount": "100000000001",
-                  "energyTax": 0.36,
-                  "energyTaxInclVat": 0.45,
-                  "tariffType": "SÄKRINGSTARIFF",
-                  "gridTariff": "Enkeltariff E4",
-                  "product": None,
-                  "service": "0001",
-                  "type": "G1",
-                  "estimatedYearlyConsumption": 2055,
-                  "monthlyDemand": None,
-                  "installedDemand": None,
-                  "monthlyLoadFeeInclVat": None,
-                  "onPeakDemandOperand": None,
-                  "transferFeeInclVat": 0.445,
-                  "transferFeeHLInclVat": None,
-                  "transferFeeLLInclVat": None,
-                  "highStrainFeeInclVat": None,
-                  "fixedPrice": 1960,
-                  "fixedFeeInclVatInclDiscount": 2450,
-                  "priceSL": 0.356,
-                  "priceLL": None,
-                  "priceHL": None,
-                  "vat": 1.25,
-                  "rateCategory": "PN_RTP",
-                  "rateCategoryText": "SÄKRINGSTARIFF",
-                  "hourlyMeasured": True,
-                  "productionInput": False,
-                  "energyTaxReduction": None,
-                  "energyTaxReductionInclVat": None,
-                  "containsAutogiro": True,
-                  "energyArea": "SN3",
-                  "hanEnabled": True,
-                  "hanStatus": "2",
-                  "hanActivationOrderStatus": None,
-                  "meterId": "900000000000000001",
-                  "installationNumber": "0000000001",
-                  "premiseType": None,
-                  "periodicitiesDetails":[
-                    {
-                      "periodicity": "Quarterly",
-                      "from": "2026-07-01T00:00:00",
-                      "to": "2026-10-31T00:00:00",
-                      "resolution": "15",
-                      "measurementType": "ABCF"
-                    },
-                    {
-                      "periodicity": "Quarterly",
-                      "from": "2026-11-01T00:00:00",
-                      "to": "9999-12-31T00:00:00",
-                      "resolution": "15",
-                      "measurementType": "ABCF"
-                    }
-                  ],
-                  "connectedPower": None,
-                  "fixedFeeInclVat": None,
-                  "fixedFee": None,
-                  "highLoadFee": None,
-                  "highLoadFeeInclVat": None,
-                  "monthlyLoadFee": None,
-                  "transferFee": None,
-                  "transferFeeHL": None,
-                  "transferFeeLL": None,
-                  "nextGridTariff": None,
-                  "nextTariffType": None,
-                  "hasUpcomingNewTariffGroup": False,
-                  "hasActiveNewTariffGroup": False,
-                  "historicalContract": None,
-                  "tariffChangeAllowed": True
+                    "contractId": "0000000001",
+                    "street": "Exempelvägen 1 A  1001",
+                    "city": "EXEMPELSTAD",
+                    "zipCode": "111 11",
+                    "contractStartDate": "2026-07-01T00:00:00",
+                    "contractEndDate": None,
+                    "earliestContractStartDate": "2026-07-01T00:00:00",
+                    "customersReference": "",
+                    "podId": "XXX735999100000000001",
+                    "fuse": "25 A Grupp",
+                    "mainFuse": "16L",
+                    "hasReactive": False,
+                    "invoiceInterval": 12,
+                    "paymentType": "S",
+                    "paymentMailRecipient": "",
+                    "paymentMethod": "X",
+                    "paymentSlip": "B",
+                    "contractAccount": "100000000001",
+                    "energyTax": 0.36,
+                    "energyTaxInclVat": 0.44999999999999996,
+                    "tariffType": "SÄKRINGSTARIFF",
+                    "gridTariff": "Enkeltariff E4",
+                    "product": None,
+                    "service": "0001",
+                    "type": "G1",
+                    "estimatedYearlyConsumption": 2055,
+                    "monthlyDemand": None,
+                    "installedDemand": None,
+                    "monthlyLoadFeeInclVat": None,
+                    "onPeakDemandOperand": None,
+                    "transferFeeInclVat": 0.44499999999999995,
+                    "transferFeeHLInclVat": None,
+                    "transferFeeLLInclVat": None,
+                    "highStrainFeeInclVat": None,
+                    "fixedPrice": 1960,
+                    "fixedFeeInclVatInclDiscount": 2450,
+                    "priceSL": 0.356,
+                    "priceLL": None,
+                    "priceHL": None,
+                    "vat": 1.25,
+                    "rateCategory": "PN_RTP",
+                    "rateCategoryText": "SÄKRINGSTARIFF",
+                    "hourlyMeasured": True,
+                    "productionInput": False,
+                    "energyTaxReduction": None,
+                    "energyTaxReductionInclVat": None,
+                    "containsAutogiro": True,
+                    "energyArea": "SN3",
+                    "hanEnabled": True,
+                    "hanStatus": "2",
+                    "hanActivationOrderStatus": None,
+                    "meterId": "900000000000000001",
+                    "installationNumber": "0000000001",
+                    "premiseType": None,
+                    "periodicitiesDetails": [
+                        {
+                            "periodicity": "Quarterly",
+                            "from": "2026-07-01T00:00:00",
+                            "to": "2026-10-31T00:00:00",
+                            "resolution": "15",
+                            "measurementType": "ABCF"
+                        },
+                        {
+                            "periodicity": "Quarterly",
+                            "from": "2026-11-01T00:00:00",
+                            "to": "9999-12-31T00:00:00",
+                            "resolution": "15",
+                            "measurementType": "ABCF"
+                        }
+                    ],
+                    "connectedPower": None,
+                    "fixedFeeInclVat": None,
+                    "fixedFee": None,
+                    "highLoadFee": None,
+                    "highLoadFeeInclVat": None,
+                    "monthlyLoadFee": None,
+                    "transferFee": None,
+                    "transferFeeHL": None,
+                    "transferFeeLL": None,
+                    "nextGridTariff": None,
+                    "nextTariffType": None,
+                    "hasUpcomingNewTariffGroup": False,
+                    "hasActiveNewTariffGroup": False,
+                    "historicalContract": None,
+                    "tariffChangeAllowed": True
                 },
             )
         ]
@@ -689,7 +689,7 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
                 status=302,
                 headers={
                     "Location": "https://accounts.vattenfall.com/iamng/seb2c/dso/web/"
-                    "#/home-login?authFailure= True"
+                    "#/home-login?authFailure=true"
                 },
             )
         ]

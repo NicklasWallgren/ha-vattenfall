@@ -21,7 +21,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_END_DATE,
+    ATTR_ENERGY_TAX_INCL_VAT,
     ATTR_FAILED_GROUPS,
+    ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
@@ -31,8 +33,6 @@ from .const import (
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
     ATTR_TRANSFER_FEE_INCL_VAT,
-    ATTR_ENERGY_TAX_INCL_VAT,
-    ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT,
     DOMAIN,
 )
 from .coordinator import VattenfallDataUpdateCoordinator
@@ -43,7 +43,7 @@ class VattenfallSensorEntityDescription(SensorEntityDescription):
     """Describes Vattenfall sensor entity."""
 
     value_key: str
-    attribute_group: str = "daily"  # "daily" | "hourly" | "temperature"
+    attribute_group: str = "daily"  # "daily" | "hourly" | "temperature" | "contract"
     last_reset_key: str | None = None
 
 
@@ -294,6 +294,6 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
             return {
                 "transfer_fee_incl_vat": data.get(ATTR_TRANSFER_FEE_INCL_VAT),
                 "energy_tax_incl_vat": data.get(ATTR_ENERGY_TAX_INCL_VAT),
-                "fixed_fee_incl_vat_incl_discount": data.get(ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT)
+                "fixed_fee_incl_vat_incl_discount": data.get(ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT),
             }
         return {}
