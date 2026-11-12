@@ -24,7 +24,9 @@ from .api import (
 )
 from .const import (
     ATTR_END_DATE,
+    ATTR_ENERGY_TAX_INCL_VAT,
     ATTR_FAILED_GROUPS,
+    ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
@@ -34,6 +36,7 @@ from .const import (
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
+    ATTR_TRANSFER_FEE_INCL_VAT,
     CONF_METERING_POINT_ID,
     CONF_TEMPERATURE_AREA_CODE,
     DEFAULT_SCAN_INTERVAL,
@@ -50,6 +53,8 @@ _LOGGER = logging.getLogger(__name__)
 _API_TIMEZONE = zoneinfo.ZoneInfo("Europe/Stockholm")
 _CHUNK_MONTHS = 3
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+# Tariffs change roughly once a year, so refreshing them daily is plenty.
+_CONTRACT_CACHE_TTL = timedelta(hours=24)
 
 
 def _date_range_chunks(start: date, end: date) -> list[tuple[date, date]]:
@@ -115,6 +120,8 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.entry = entry
+        self._contract_cache: dict[str, Any] | None = None
+        self._contract_cache_time: datetime | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data from API."""
@@ -124,7 +131,7 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hourly_end = date.today()
             # Vattenfall publishes about once a day, so yesterday may still be missing.
             hourly_start = hourly_end - timedelta(days=2)
-            return await self._async_build_data(
+            data = await self._async_build_data(
                 daily_start=month_start,
                 daily_end=end_date,
                 hourly_start=hourly_start,
@@ -136,6 +143,43 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed(f"Vattenfall rejected the login: {err}") from err
         except VattenfallApiError as err:
             raise UpdateFailed(f"Failed to fetch data from Vattenfall API: {err}") from err
+
+        # Fee details are optional, so a failure here must not fail the whole update.
+        try:
+            data.update(await self._async_fetch_contract_data())
+        except VattenfallApiError as err:
+            if self._contract_cache is not None:
+                _LOGGER.warning("Could not refresh contract fee details, using cached values: %s", err)
+                data.update(self._contract_cache)
+            else:
+                _LOGGER.warning("Could not fetch contract fee details: %s", err)
+                data.update(
+                    {
+                        ATTR_TRANSFER_FEE_INCL_VAT: None,
+                        ATTR_ENERGY_TAX_INCL_VAT: None,
+                        ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT: None,
+                    }
+                )
+        return data
+
+    async def _async_fetch_contract_data(self) -> dict[str, Any]:
+        """Fetch contract fee details, cached for _CONTRACT_CACHE_TTL."""
+        now = datetime.now(timezone.utc)
+        if (
+            self._contract_cache is not None
+            and self._contract_cache_time is not None
+            and now - self._contract_cache_time < _CONTRACT_CACHE_TTL
+        ):
+            return self._contract_cache
+
+        tariff = await self.client.async_get_contract()
+        self._contract_cache = {
+            ATTR_TRANSFER_FEE_INCL_VAT: tariff.transfer_fee_incl_vat,
+            ATTR_ENERGY_TAX_INCL_VAT: tariff.energy_tax_incl_vat,
+            ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT: tariff.fixed_fee_incl_vat_incl_discount,
+        }
+        self._contract_cache_time = now
+        return self._contract_cache
 
     async def async_backfill_range(
         self,

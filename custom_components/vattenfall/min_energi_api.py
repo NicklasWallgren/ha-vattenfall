@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 
 from .api import (
     ConsumptionPoint,
+    ContractTariff,
     HourlyConsumptionPoint,
     HourlyTemperaturePoint,
     VattenfallAccessDeniedError,
@@ -199,6 +200,8 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
     """
 
     supports_quarter_hour = True
+    # Grid fees come from the grid operator's contract, which Min energi does not expose.
+    supports_contract = False
 
     def __init__(self, hass: HomeAssistant, config: Mapping[str, Any]) -> None:
         super().__init__(
@@ -265,6 +268,14 @@ class VattenfallMinEnergiClient(VattenfallApiClient):
         if not cookies:
             return dict(headers)
         return {**headers, "cookie": "; ".join(f"{name}={value}" for name, value in cookies.items())}
+
+    async def async_get_contract(self, allow_stub: bool = True) -> ContractTariff:
+        """Return no grid fees without calling the Eldistribution-only contract endpoint."""
+        return ContractTariff(
+            transfer_fee_incl_vat=None,
+            energy_tax_incl_vat=None,
+            fixed_fee_incl_vat_incl_discount=None,
+        )
 
     async def async_get_premises(self) -> list[dict[str, Any]]:
         """Return the premises (metering points) available on the account."""

@@ -22,7 +22,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     ACCOUNT_TYPE_MIN_ENERGI,
     ATTR_END_DATE,
+    ATTR_ENERGY_TAX_INCL_VAT,
     ATTR_FAILED_GROUPS,
+    ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
@@ -32,6 +34,7 @@ from .const import (
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
+    ATTR_TRANSFER_FEE_INCL_VAT,
     CONF_ACCOUNT_TYPE,
     DOMAIN,
 )
@@ -43,7 +46,8 @@ class VattenfallSensorEntityDescription(SensorEntityDescription):
     """Describes Vattenfall sensor entity."""
 
     value_key: str
-    attribute_group: str = "daily"  # "daily" | "hourly" | "quarter_hour" | "temperature"
+    # "daily" | "hourly" | "quarter_hour" | "temperature" | "contract"
+    attribute_group: str = "daily"
     last_reset_key: str | None = None
 
 
@@ -178,6 +182,35 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         icon="mdi:thermometer-high",
         attribute_group="temperature",
     ),
+    VattenfallSensorEntityDescription(
+        key="transfer_fee",
+        translation_key="transfer_fee",
+        name="Transfer fee incl. VAT",
+        native_unit_of_measurement="SEK/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="transfer_fee_incl_vat",
+        icon="mdi:transmission-tower",
+        attribute_group="contract",
+    ),
+    VattenfallSensorEntityDescription(
+        key="energy_tax",
+        translation_key="energy_tax",
+        name="Energy tax incl. VAT",
+        native_unit_of_measurement="SEK/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="energy_tax_incl_vat",
+        icon="mdi:cash",
+        attribute_group="contract",
+    ),
+    VattenfallSensorEntityDescription(
+        key="fixed_fee",
+        translation_key="fixed_fee",
+        name="Fixed fee incl. VAT incl. discount",
+        native_unit_of_measurement="SEK/year",
+        value_key="fixed_fee_incl_vat_incl_discount",
+        icon="mdi:cash-multiple",
+        attribute_group="contract",
+    ),
 )
 
 
@@ -194,8 +227,14 @@ async def async_setup_entry(
     entities = [
         VattenfallSensor(coordinator=coordinator, entry=entry, description=description)
         for description in SENSORS
-        if description.attribute_group != "quarter_hour"
-        or getattr(coordinator.client, "supports_quarter_hour", False)
+        if (
+            description.attribute_group != "quarter_hour"
+            or getattr(coordinator.client, "supports_quarter_hour", False)
+        )
+        and (
+            description.attribute_group != "contract"
+            or getattr(coordinator.client, "supports_contract", True)
+        )
     ]
     async_add_entities(entities)
 
@@ -288,5 +327,11 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
                 "end_date": data.get(ATTR_TEMPERATURE_END_DATE),
                 "points_count": len(data.get(ATTR_TEMPERATURE_POINTS, [])),
                 "latest_day": data.get("temperature_latest_day"),
+            }
+        if group == "contract":
+            return {
+                "transfer_fee_incl_vat": data.get(ATTR_TRANSFER_FEE_INCL_VAT),
+                "energy_tax_incl_vat": data.get(ATTR_ENERGY_TAX_INCL_VAT),
+                "fixed_fee_incl_vat_incl_discount": data.get(ATTR_FIXED_FEE_INCL_VAT_INCL_DISCOUNT),
             }
         return {}

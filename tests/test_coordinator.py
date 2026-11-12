@@ -18,6 +18,9 @@ UpdateFailed = importlib.import_module("homeassistant.helpers.update_coordinator
 
 _START = datetime(2026, 3, 1, tzinfo=timezone.utc).timestamp()
 _HOUR = 3600.0
+_TARIFF = api.ContractTariff(
+    transfer_fee_incl_vat=0.445, energy_tax_incl_vat=0.45, fixed_fee_incl_vat_incl_discount=2450.0
+)
 
 
 class _FakeRecorder:
@@ -175,6 +178,7 @@ class CoordinatorDataTests(unittest.IsolatedAsyncioTestCase):
             ),
             async_get_hourly_consumption=AsyncMock(return_value=[]),
             async_get_hourly_temperature=AsyncMock(side_effect=api.VattenfallApiError("down")),
+            async_get_contract=AsyncMock(return_value=_TARIFF),
         )
 
         data = await _coordinator(client)._async_update_data()
@@ -197,6 +201,7 @@ class CoordinatorDataTests(unittest.IsolatedAsyncioTestCase):
             async_get_daily_consumption=AsyncMock(return_value=[]),
             async_get_hourly_consumption=AsyncMock(return_value=[]),
             async_get_hourly_temperature=AsyncMock(side_effect=api.VattenfallApiError("down")),
+            async_get_contract=AsyncMock(return_value=_TARIFF),
         )
         coordinator = _coordinator(client)
 
@@ -205,6 +210,55 @@ class CoordinatorDataTests(unittest.IsolatedAsyncioTestCase):
             coordinator.data = await coordinator._async_update_data()
 
         warning.assert_called_once()
+
+    async def test_contract_failure_leaves_other_data_intact(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(
+                return_value=[api.ConsumptionPoint(date="2026-03-01", value_kwh=5.0)]
+            ),
+            async_get_hourly_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_temperature=AsyncMock(return_value=[]),
+            async_get_contract=AsyncMock(side_effect=api.VattenfallApiError("down")),
+        )
+
+        data = await _coordinator(client)._async_update_data()
+
+        self.assertEqual(data["latest_day_kwh"], 5.0)
+        self.assertIsNone(data["transfer_fee_incl_vat"])
+        self.assertIsNone(data["energy_tax_incl_vat"])
+        self.assertIsNone(data["fixed_fee_incl_vat_incl_discount"])
+
+    async def test_contract_is_cached_between_updates(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_temperature=AsyncMock(return_value=[]),
+            async_get_contract=AsyncMock(return_value=_TARIFF),
+        )
+        coordinator = _coordinator(client)
+
+        await coordinator._async_update_data()
+        data = await coordinator._async_update_data()
+
+        client.async_get_contract.assert_awaited_once()
+        self.assertEqual(data["transfer_fee_incl_vat"], 0.445)
+
+    async def test_contract_failure_after_expiry_keeps_cached_fees(self) -> None:
+        client = SimpleNamespace(
+            async_get_daily_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_consumption=AsyncMock(return_value=[]),
+            async_get_hourly_temperature=AsyncMock(return_value=[]),
+            async_get_contract=AsyncMock(side_effect=[_TARIFF, api.VattenfallApiError("down")]),
+        )
+        coordinator = _coordinator(client)
+
+        await coordinator._async_update_data()
+        coordinator._contract_cache_time -= coordinator_mod._CONTRACT_CACHE_TTL
+        data = await coordinator._async_update_data()
+
+        self.assertEqual(client.async_get_contract.await_count, 2)
+        self.assertEqual(data["energy_tax_incl_vat"], 0.45)
+        self.assertEqual(data["fixed_fee_incl_vat_incl_discount"], 2450.0)
 
     async def test_latest_reading_uses_second_repeated_dst_hour(self) -> None:
         hourly = [

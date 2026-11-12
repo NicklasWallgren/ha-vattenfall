@@ -524,6 +524,119 @@ class TestVattenfallApiFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(last_call[1], temperature_url)
         self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
 
+    async def test_get_contract_returns_tariff(self) -> None:
+        routes = _auth_routes()
+        contract_url = (
+            "https://services.vattenfalleldistribution.se/contract/contract/"
+            "HDG123456789"
+        )
+        routes[("GET", contract_url)] = [
+            FakeResponse(
+                status=200,
+                json_body={
+                    "contractId": "0000000001",
+                    "street": "Exempelvägen 1 A  1001",
+                    "city": "EXEMPELSTAD",
+                    "zipCode": "111 11",
+                    "contractStartDate": "2026-07-01T00:00:00",
+                    "contractEndDate": None,
+                    "earliestContractStartDate": "2026-07-01T00:00:00",
+                    "customersReference": "",
+                    "podId": "XXX735999100000000001",
+                    "fuse": "25 A Grupp",
+                    "mainFuse": "16L",
+                    "hasReactive": False,
+                    "invoiceInterval": 12,
+                    "paymentType": "S",
+                    "paymentMailRecipient": "",
+                    "paymentMethod": "X",
+                    "paymentSlip": "B",
+                    "contractAccount": "100000000001",
+                    "energyTax": 0.36,
+                    "energyTaxInclVat": 0.44999999999999996,
+                    "tariffType": "SÄKRINGSTARIFF",
+                    "gridTariff": "Enkeltariff E4",
+                    "product": None,
+                    "service": "0001",
+                    "type": "G1",
+                    "estimatedYearlyConsumption": 2055,
+                    "monthlyDemand": None,
+                    "installedDemand": None,
+                    "monthlyLoadFeeInclVat": None,
+                    "onPeakDemandOperand": None,
+                    "transferFeeInclVat": 0.44499999999999995,
+                    "transferFeeHLInclVat": None,
+                    "transferFeeLLInclVat": None,
+                    "highStrainFeeInclVat": None,
+                    "fixedPrice": 1960,
+                    "fixedFeeInclVatInclDiscount": 2450,
+                    "priceSL": 0.356,
+                    "priceLL": None,
+                    "priceHL": None,
+                    "vat": 1.25,
+                    "rateCategory": "PN_RTP",
+                    "rateCategoryText": "SÄKRINGSTARIFF",
+                    "hourlyMeasured": True,
+                    "productionInput": False,
+                    "energyTaxReduction": None,
+                    "energyTaxReductionInclVat": None,
+                    "containsAutogiro": True,
+                    "energyArea": "SN3",
+                    "hanEnabled": True,
+                    "hanStatus": "2",
+                    "hanActivationOrderStatus": None,
+                    "meterId": "900000000000000001",
+                    "installationNumber": "0000000001",
+                    "premiseType": None,
+                    "periodicitiesDetails": [
+                        {
+                            "periodicity": "Quarterly",
+                            "from": "2026-07-01T00:00:00",
+                            "to": "2026-10-31T00:00:00",
+                            "resolution": "15",
+                            "measurementType": "ABCF"
+                        },
+                        {
+                            "periodicity": "Quarterly",
+                            "from": "2026-11-01T00:00:00",
+                            "to": "9999-12-31T00:00:00",
+                            "resolution": "15",
+                            "measurementType": "ABCF"
+                        }
+                    ],
+                    "connectedPower": None,
+                    "fixedFeeInclVat": None,
+                    "fixedFee": None,
+                    "highLoadFee": None,
+                    "highLoadFeeInclVat": None,
+                    "monthlyLoadFee": None,
+                    "transferFee": None,
+                    "transferFeeHL": None,
+                    "transferFeeLL": None,
+                    "nextGridTariff": None,
+                    "nextTariffType": None,
+                    "hasUpcomingNewTariffGroup": False,
+                    "hasActiveNewTariffGroup": False,
+                    "historicalContract": None,
+                    "tariffChangeAllowed": True
+                },
+            )
+        ]
+        session = FakeHttpxClient(routes)
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = api.VattenfallApiClient(hass=object(), config=_base_config())
+            tariff = await client.async_get_contract()
+
+        self.assertEqual(tariff.transfer_fee_incl_vat, 0.445)
+        self.assertEqual(tariff.energy_tax_incl_vat, 0.45)
+        self.assertEqual(tariff.fixed_fee_incl_vat_incl_discount, 2450.0)
+
+        last_call = session.calls[-1]
+        self.assertEqual(last_call[0], "GET")
+        self.assertEqual(last_call[1], contract_url)
+        self.assertEqual(last_call[2]["headers"]["ocp-apim-subscription-key"], "sub-key")
+
     async def test_get_daily_consumption_reauths_after_unauthorized(self) -> None:
         routes = _auth_routes()
         for key, values in _auth_routes().items():

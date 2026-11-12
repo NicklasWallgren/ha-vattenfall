@@ -550,6 +550,19 @@ class TestMinEnergiApi(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([p["id"] for p in premises], [PREMISE_ID])
 
+    async def test_contract_fees_are_not_requested(self) -> None:
+        session = FakeHttpxClient({})
+
+        with patch.object(api.httpx, "AsyncClient", return_value=session):
+            client = min_energi_api.VattenfallMinEnergiClient(hass=object(), config=_config())
+            tariff = await client.async_get_contract()
+
+        self.assertFalse(client.supports_contract)
+        self.assertIsNone(tariff.transfer_fee_incl_vat)
+        self.assertIsNone(tariff.energy_tax_incl_vat)
+        self.assertIsNone(tariff.fixed_fee_incl_vat_incl_discount)
+        self.assertEqual(session.calls, [])
+
     def test_create_api_client_selects_by_account_type(self) -> None:
         self.assertIsInstance(
             min_energi_api.create_api_client(hass=object(), config=_config()),

@@ -24,6 +24,9 @@ dashboards, Energy, and automations.
   - Latest day average temperature
   - Latest day minimum temperature
   - Latest day maximum temperature
+  - Transfer fee incl. VAT (per kWh, Eldistribution only)
+  - Energy tax incl. VAT (per kWh, Eldistribution only)
+  - Fixed fee incl. VAT incl. discount (Eldistribution only)
 - HACS compatible
 
 ## Installation
