@@ -29,6 +29,7 @@ from .const import (
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
     ATTR_POINTS,
+    ATTR_QUARTER_HOUR_POINTS,
     ATTR_START_DATE,
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
@@ -200,6 +201,10 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             builders["daily"] = lambda: self._async_build_daily(daily_start, daily_end)
         if hourly_start is not None and hourly_end is not None:
             builders["hourly"] = lambda: self._async_build_hourly(hourly_start, hourly_end)
+            if getattr(self.client, "supports_quarter_hour", False):
+                builders["quarter_hour"] = lambda: self._async_build_quarter_hour(
+                    hourly_start, hourly_end
+                )
         if temperature_start is not None and temperature_end is not None:
             builders["temperature"] = lambda: self._async_build_temperature(
                 temperature_start, temperature_end
@@ -291,6 +296,22 @@ class VattenfallDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ATTR_HOURLY_START_DATE: hourly_start.isoformat(),
             ATTR_HOURLY_END_DATE: hourly_end.isoformat(),
             ATTR_HOURLY_POINTS: [asdict(point) for point in hourly_points],
+        }
+
+    async def _async_build_quarter_hour(self, start: date, end: date) -> dict[str, Any]:
+        """Build the 15-minute consumption part of the coordinator data."""
+        quarter_points = await self.client.async_get_quarter_hour_consumption(start, end)
+        latest_quarter = quarter_points[-1] if quarter_points else None
+        # Keep the latest day with data, like the Vattenfall site shows it.
+        latest_day = latest_quarter.date_time[:10] if latest_quarter else None
+        return {
+            "latest_quarter_hour_kwh": latest_quarter.value_kwh if latest_quarter else None,
+            "latest_quarter_hour_time": latest_quarter.date_time if latest_quarter else None,
+            ATTR_QUARTER_HOUR_POINTS: [
+                asdict(point)
+                for point in quarter_points
+                if latest_day and point.date_time.startswith(latest_day)
+            ],
         }
 
     async def _async_build_temperature(self, temperature_start: date, temperature_end: date) -> dict[str, Any]:

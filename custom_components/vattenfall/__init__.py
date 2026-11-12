@@ -22,6 +22,7 @@ from .const import (
     SERVICE_BACKFILL,
 )
 from .coordinator import VattenfallDataUpdateCoordinator
+from .min_energi_api import create_api_client
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Vattenfall from a config entry."""
-    client = VattenfallApiClient(hass=hass, config=entry.data)
+    client = create_api_client(hass=hass, config=entry.data)
     coordinator = VattenfallDataUpdateCoordinator(hass=hass, client=client, entry=entry)
     await coordinator.async_config_entry_first_refresh()
 

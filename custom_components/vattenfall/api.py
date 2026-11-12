@@ -111,13 +111,17 @@ async def async_fetch_subscription_key(client: httpx.AsyncClient) -> str:
 class VattenfallApiClient:
     """Vattenfall API client."""
 
+    # Whether the client can fetch 15-minute consumption.
+    supports_quarter_hour = False
+
     def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
         self._hass = hass
         self._base_url = DEFAULT_BASE_URL
-        self._metering_point_id: str = config[CONF_METERING_POINT_ID]
+        # Absent while a Min energi config flow is still listing premises.
+        self._metering_point_id: str = config.get(CONF_METERING_POINT_ID, "")
         self._customer_id: str = config[CONF_CUSTOMER_ID]
         self._password: str = config[CONF_PASSWORD]
-        self._subscription_key: str = config[CONF_SUBSCRIPTION_KEY]
+        self._subscription_key: str = config.get(CONF_SUBSCRIPTION_KEY, "")
         self._temperature_area_code: str = str(
             config.get(CONF_TEMPERATURE_AREA_CODE, DEFAULT_TEMPERATURE_AREA_CODE)
         )

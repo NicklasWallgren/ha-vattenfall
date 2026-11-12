@@ -20,16 +20,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ACCOUNT_TYPE_MIN_ENERGI,
     ATTR_END_DATE,
     ATTR_FAILED_GROUPS,
     ATTR_HOURLY_END_DATE,
     ATTR_HOURLY_POINTS,
     ATTR_HOURLY_START_DATE,
     ATTR_POINTS,
+    ATTR_QUARTER_HOUR_POINTS,
     ATTR_START_DATE,
     ATTR_TEMPERATURE_END_DATE,
     ATTR_TEMPERATURE_POINTS,
     ATTR_TEMPERATURE_START_DATE,
+    CONF_ACCOUNT_TYPE,
     DOMAIN,
 )
 from .coordinator import VattenfallDataUpdateCoordinator
@@ -40,7 +43,7 @@ class VattenfallSensorEntityDescription(SensorEntityDescription):
     """Describes Vattenfall sensor entity."""
 
     value_key: str
-    attribute_group: str = "daily"  # "daily" | "hourly" | "temperature"
+    attribute_group: str = "daily"  # "daily" | "hourly" | "quarter_hour" | "temperature"
     last_reset_key: str | None = None
 
 
@@ -122,6 +125,16 @@ SENSORS: tuple[VattenfallSensorEntityDescription, ...] = (
         attribute_group="hourly",
     ),
     VattenfallSensorEntityDescription(
+        key="latest_quarter_hour",
+        translation_key="latest_quarter_hour",
+        name="Latest 15-minute consumption",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_key="latest_quarter_hour_kwh",
+        icon="mdi:timer-outline",
+        attribute_group="quarter_hour",
+    ),
+    VattenfallSensorEntityDescription(
         key="latest_temperature",
         translation_key="latest_temperature",
         name="Latest outdoor temperature",
@@ -181,6 +194,7 @@ async def async_setup_entry(
     entities = [
         VattenfallSensor(coordinator=coordinator, entry=entry, description=description)
         for description in SENSORS
+        if description.attribute_group != "quarter_hour" or coordinator.client.supports_quarter_hour
     ]
     async_add_entities(entities)
 
@@ -190,6 +204,8 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
 
     entity_description: VattenfallSensorEntityDescription
     _attr_has_entity_name = True
+    # The 15-minute series changes every update; keep it out of the recorder database.
+    _unrecorded_attributes = frozenset({"points"})
 
     def __init__(
         self,
@@ -202,7 +218,12 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
-            name="Vattenfall",
+            # Min energi accounts can have several premises, so name devices after the entry.
+            name=(
+                entry.title
+                if entry.data.get(CONF_ACCOUNT_TYPE) == ACCOUNT_TYPE_MIN_ENERGI
+                else "Vattenfall"
+            ),
             manufacturer="Vattenfall",
         )
 
@@ -250,6 +271,15 @@ class VattenfallSensor(CoordinatorEntity[VattenfallDataUpdateCoordinator], Senso
                 "points_count": len(data.get(ATTR_HOURLY_POINTS, [])),
                 "peak_hour_time": data.get("today_peak_hour_time"),
                 "latest_day": data.get("hourly_latest_day"),
+            }
+        if group == "quarter_hour":
+            points = data.get(ATTR_QUARTER_HOUR_POINTS, [])
+            return {
+                "start_time": data.get("latest_quarter_hour_time"),
+                "points_count": len(points),
+                "points": [
+                    {"start": point["date_time"], "kwh": point["value_kwh"]} for point in points
+                ],
             }
         if group == "temperature":
             return {
