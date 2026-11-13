@@ -14,12 +14,16 @@ from homeassistant.helpers import config_validation as cv
 
 from .api import VattenfallApiClient
 from .const import (
+    ACCOUNT_TYPE_MIN_ENERGI,
+    CONF_ACCOUNT_TYPE,
+    CONF_METERING_POINT_ID,
     DOMAIN,
     SERVICE_ATTR_END_DATE,
     SERVICE_ATTR_ENTRY_ID,
     SERVICE_ATTR_MODE,
     SERVICE_ATTR_START_DATE,
     SERVICE_BACKFILL,
+    min_energi_unique_id,
 )
 from .coordinator import VattenfallDataUpdateCoordinator
 from .min_energi_api import create_api_client
@@ -41,6 +45,7 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Vattenfall from a config entry."""
+    _async_migrate_min_energi_unique_id(hass, entry)
     client = create_api_client(hass=hass, config=entry.data)
     coordinator = VattenfallDataUpdateCoordinator(hass=hass, client=client, entry=entry)
     await coordinator.async_config_entry_first_refresh()
@@ -64,6 +69,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def _async_migrate_min_energi_unique_id(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Move a Min energi entry from the bare premise ID to its own unique ID.
+
+    Entries created by 0.14.0 used the premise ID, which can equal an Eldistribution
+    metering point ID and then blocks adding the other service for the same meter.
+    """
+    if entry.data.get(CONF_ACCOUNT_TYPE) != ACCOUNT_TYPE_MIN_ENERGI:
+        return
+    unique_id = min_energi_unique_id(entry.data[CONF_METERING_POINT_ID])
+    if entry.unique_id != unique_id:
+        hass.config_entries.async_update_entry(entry, unique_id=unique_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

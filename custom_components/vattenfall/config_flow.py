@@ -36,6 +36,7 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_TEMPERATURE_AREA_CODE,
     DOMAIN,
+    min_energi_unique_id,
 )
 from .min_energi_api import VattenfallMinEnergiClient
 
@@ -183,7 +184,13 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not errors:
                 if not premises:
                     return self.async_abort(reason="no_premises")
-                configured = self._async_current_ids()
+                # Compare with Min energi entries only: an Eldistribution metering
+                # point can have the same ID as the premise.
+                configured = {
+                    entry.data.get(CONF_METERING_POINT_ID)
+                    for entry in self._async_current_entries(include_ignore=False)
+                    if _is_min_energi(entry.data)
+                }
                 self._premises = {
                     premise["id"]: self._premise_label(premise)
                     for premise in premises
@@ -214,7 +221,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Let the user pick which Min energi premise to add."""
         if user_input is not None:
             premise_id = user_input[CONF_METERING_POINT_ID]
-            await self.async_set_unique_id(premise_id)
+            await self.async_set_unique_id(min_energi_unique_id(premise_id))
             self._abort_if_unique_id_configured()
 
             name = self._min_energi_input.get(CONF_NAME, DEFAULT_NAME)
