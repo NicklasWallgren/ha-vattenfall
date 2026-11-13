@@ -3,7 +3,8 @@
 Custom integration for Home Assistant that retrieves electricity consumption from Vattenfall and exposes sensors for
 dashboards, Energy, and automations.
 
-> **Note:** This integration only works with Vattenfall Eldistribution in Sweden (`vattenfalleldistribution.se`). It is
+> **Note:** This integration works with Vattenfall in Sweden only, either through Vattenfall Eldistribution (the grid
+> operator, `vattenfalleldistribution.se`) or Vattenfall Min energi (the electricity retailer, `vattenfall.se`). It is
 > not compatible with Vattenfall in other countries.
 
 ## Features
@@ -18,13 +19,14 @@ dashboards, Energy, and automations.
   - Latest day hourly total
   - Latest day peak hour
   - Latest consumption reading (timestamp of the newest data from Vattenfall)
+  - Latest 15-minute consumption (Min energi only)
   - Latest outdoor temperature
   - Latest day average temperature
   - Latest day minimum temperature
   - Latest day maximum temperature
-  - Transfer fee incl. VAT (per kWh)
-  - Energy tax incl. VAT (per kWh)
-  - Fixed fee incl. VAT incl. discount
+  - Transfer fee incl. VAT (per kWh, Eldistribution only)
+  - Energy tax incl. VAT (per kWh, Eldistribution only)
+  - Fixed fee incl. VAT incl. discount (Eldistribution only)
 - HACS compatible
 
 ## Installation
@@ -62,20 +64,25 @@ Install this integration with the following button:
 
 1. In Home Assistant, go to `Settings` -> `Devices & Services`.
 2. Click `Add Integration` and search for `Vattenfall`.
-3. Enter:
-   - `Customer ID`
-   - `Password`
-   - `Metering point ID` (any spaces are removed automatically)
-   - `Subscription key` (optional, leave blank to detect it automatically)
-   - `Postal code for temperature` (five digits, defaults to `11120`)
+3. Choose the service to read consumption from.
 
-### Postal code for temperature
+### Vattenfall Eldistribution
+
+Use this if Vattenfall Eldistribution is your grid operator. Enter:
+
+- `Customer ID`
+- `Password`
+- `Metering point ID` (any spaces are removed automatically)
+- `Subscription key` (optional, leave blank to detect it automatically)
+- `Postal code for temperature` (five digits, defaults to `11120`)
+
+#### Postal code for temperature
 
 Vattenfall chooses the outdoor temperature area from this postal code, so enter your own. Any spaces are removed. The
 default, `11120`, is in central Stockholm. A five-digit code Vattenfall doesn't recognise still returns data, but for a fallback
 area, so the temperatures may not match your location.
 
-### Getting a subscription key
+#### Getting a subscription key
 
 Leave `Subscription key` blank and the integration reads it from Vattenfall's public website. If you enter nothing
 when re-authenticating or reconfiguring, it detects the current key again.
@@ -88,6 +95,42 @@ If detection fails, you can find the `Ocp-Apim-Subscription-Key` value yourself 
 3. Browse to your consumption data so the page makes API requests.
 4. Find a request to the Vattenfall API and inspect its request headers.
 5. Copy the value of the `Ocp-Apim-Subscription-Key` header — this is your `Subscription key`.
+
+### Vattenfall Min energi
+
+Use this if Vattenfall is your electricity retailer (`Mina sidor` -> `Min energi` on `vattenfall.se`), whichever company
+is your grid operator. Enter the `Customer ID` and `Password` you use on `vattenfall.se`, then pick the premise to add.
+No subscription key is needed. If the account has several premises, add the integration once per premise.
+
+Temperature sensors use the outdoor temperature Vattenfall reports for the premise.
+
+#### 15-minute consumption
+
+Min energi entries also get a `Latest 15-minute consumption` sensor. Its state is the latest 15-minute interval
+Vattenfall has published, and its `points` attribute holds every 15-minute interval of that day, as shown on
+`vattenfall.se`. Home Assistant's long-term statistics (and the Energy dashboard) only store hourly data, so the
+15-minute values are available through this sensor rather than through statistics or the backfill action.
+
+To chart them, for example with [apexcharts-card](https://github.com/RomRider/apexcharts-card):
+
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Consumption per 15 minutes
+graph_span: 2d
+span:
+  end: day
+series:
+  - entity: sensor.vattenfall_latest_15_minute_consumption
+    type: column
+    name: kWh
+    data_generator: |
+      return entity.attributes.points.map((p) => [new Date(p.start).getTime(), p.kwh]);
+```
+
+Vattenfall publishes the data the day after, so the chart covers yesterday and today, and the sensor only contains
+days Vattenfall reports as complete.
 
 ## Notes
 

@@ -3,6 +3,14 @@
     "step": {
       "user": {
         "title": "Connect Vattenfall",
+        "description": "Which Vattenfall service do you want to read consumption from?",
+        "menu_options": {
+          "eldistribution": "Vattenfall Eldistribution (grid operator, vattenfalleldistribution.se)",
+          "min_energi": "Vattenfall Min energi (electricity retailer, vattenfall.se)"
+        }
+      },
+      "eldistribution": {
+        "title": "Vattenfall Eldistribution",
         "description": "Configure your Vattenfall account and metering point.",
         "data": {
           "name": "Name",
@@ -15,6 +23,22 @@
         "data_description": {
           "subscription_key": "Leave blank to detect it automatically from Vattenfall's website.",
           "temperature_area_code": "Your five-digit postal code. Vattenfall uses it to choose the outdoor temperature area."
+        }
+      },
+      "min_energi": {
+        "title": "Vattenfall Min energi",
+        "description": "Log in with the customer ID and password you use on vattenfall.se.",
+        "data": {
+          "name": "Name",
+          "customer_id": "Customer ID",
+          "password": "Password"
+        }
+      },
+      "premise": {
+        "title": "Select premise",
+        "description": "Select the premise (metering point) to add. Add the integration again for each additional premise.",
+        "data": {
+          "metering_point_id": "Premise"
         }
       },
       "reauth_confirm": {
@@ -48,12 +72,14 @@
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
       "subscription_key_not_found": "Could not detect the subscription key. Enter it manually.",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "premise_not_found": "This Vattenfall account has no access to the configured premise. Log in with the account that owns it."
     },
     "abort": {
       "already_configured": "This metering point is already configured",
       "reauth_successful": "Vattenfall login updated",
-      "reconfigure_successful": "Vattenfall settings updated"
+      "reconfigure_successful": "Vattenfall settings updated",
+      "no_premises": "No premises were found on this Vattenfall account"
     }
   },
   "entity": {
@@ -78,6 +104,9 @@
       },
       "latest_reading": {
         "name": "Latest consumption reading"
+      },
+      "latest_quarter_hour": {
+        "name": "Latest 15-minute consumption"
       },
       "latest_temperature": {
         "name": "Latest outdoor temperature"

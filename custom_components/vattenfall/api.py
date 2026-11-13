@@ -120,6 +120,11 @@ async def async_fetch_subscription_key(client: httpx.AsyncClient) -> str:
 class VattenfallApiClient:
     """Vattenfall API client."""
 
+    # Whether the client can fetch 15-minute consumption.
+    supports_quarter_hour = False
+    # Whether the client can fetch grid fees from the contract endpoint.
+    supports_contract = True
+
     def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
         self._hass = hass
         self._base_url = DEFAULT_BASE_URL
@@ -372,7 +377,7 @@ class VattenfallApiClient:
         self,
         endpoint: str,
         headers: dict[str, str],
-        cookies: dict[str, str],
+        cookies: dict[str, str] | None,
         label: str,
     ) -> httpx.Response:
         """Make a GET request, retrying on 5xx server errors."""
