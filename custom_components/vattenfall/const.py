@@ -49,3 +49,7 @@ SERVICE_ATTR_START_DATE = "start_date"
 SERVICE_ATTR_END_DATE = "end_date"
 SERVICE_ATTR_MODE = "mode"
 SERVICE_ATTR_ENTRY_ID = "entry_id"
+
+# Eldistribution entries use the bare metering point ID as unique ID, which can equal a
+# Min energi premise ID, so Min energi entries prefix theirs.
+MIN_ENERGI_UNIQUE_ID_PREFIX = f"{ACCOUNT_TYPE_MIN_ENERGI}_"

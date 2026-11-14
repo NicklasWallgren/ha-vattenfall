@@ -6,12 +6,20 @@ import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from test_api_flow import api  # noqa: F401  # installs Home Assistant stubs
 
 PREMISE_ID = "SKR123456789"
 OTHER_PREMISE_ID = "SKR987654321"
+
+
+class AbortFlow(Exception):
+    """Raised like Home Assistant's AbortFlow when a unique ID is already configured."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def _install_config_flow_stubs() -> None:
@@ -40,10 +48,14 @@ def _install_config_flow_stubs() -> None:
             self.unique_id = unique_id
 
         def _abort_if_unique_id_configured(self):
-            return None
+            if self.unique_id in self._async_current_ids():
+                raise AbortFlow("already_configured")
 
-        def _async_current_ids(self):
-            return self.current_ids
+        def _async_current_entries(self, include_ignore=True):  # noqa: ANN001
+            return self.current_entries
+
+        def _async_current_ids(self, include_ignore=True):  # noqa: ANN001
+            return {entry.unique_id for entry in self.current_entries}
 
         def _get_reauth_entry(self):
             return self.entry
@@ -72,6 +84,7 @@ def _install_config_flow_stubs() -> None:
 
 _install_config_flow_stubs()
 config_flow = importlib.import_module("custom_components.vattenfall.config_flow")
+integration = importlib.import_module("custom_components.vattenfall")
 
 
 # The shared voluptuous stubs do not take defaults; schemas only need to build here.
@@ -103,8 +116,31 @@ class _FakeMinEnergiClient:
         return None
 
 
+def _entry(
+    unique_id: str,
+    account_type: str | None,
+    metering_point_id: str,
+    version: int = 1,
+    minor_version: int = 2,
+) -> SimpleNamespace:
+    data = {"metering_point_id": metering_point_id}
+    if account_type:
+        data["account_type"] = account_type
+    return SimpleNamespace(
+        entry_id="entry-1",
+        unique_id=unique_id,
+        data=data,
+        version=version,
+        minor_version=minor_version,
+    )
+
+
 def _min_energi_entry() -> SimpleNamespace:
     return SimpleNamespace(
+        entry_id="entry-1",
+        unique_id=f"min_energi_{PREMISE_ID}",
+        version=1,
+        minor_version=2,
         data={
             "account_type": "min_energi",
             "name": "Vattenfall",
@@ -128,10 +164,10 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
             active.start()
             self.addCleanup(active.stop)
 
-    def _flow(self, current_ids=()) -> config_flow.VattenfallConfigFlow:  # noqa: ANN001
+    def _flow(self, current_entries=()) -> config_flow.VattenfallConfigFlow:  # noqa: ANN001
         flow = config_flow.VattenfallConfigFlow()
         flow.hass = object()
-        flow.current_ids = set(current_ids)
+        flow.current_entries = list(current_entries)
         flow.entry = _min_energi_entry()
         return flow
 
@@ -187,7 +223,7 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
             {"id": OTHER_PREMISE_ID, "name": "Cabin", "city": "Mora"},
         ]
         # The first premise is already set up, so only the second one is offered.
-        flow = self._flow(current_ids={PREMISE_ID})
+        flow = self._flow(current_entries=[_min_energi_entry()])
 
         form = await flow.async_step_min_energi(
             {"name": "Vattenfall", "customer_id": "1", "password": "x"}
@@ -197,6 +233,41 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(form["step_id"], "premise")
         self.assertEqual(result["title"], "Vattenfall (Cabin, Mora)")
 
+    async def test_eldistribution_entry_with_the_same_id_does_not_block_min_energi(self) -> None:
+        # Eldistribution can use the very same ID for the metering point as Min energi
+        # uses for the premise.
+        flow = self._flow(current_entries=[_entry(PREMISE_ID, None, PREMISE_ID)])
+
+        form = await flow.async_step_min_energi(
+            {"name": "Vattenfall", "customer_id": "1", "password": "x"}
+        )
+        result = await flow.async_step_premise({"metering_point_id": PREMISE_ID})
+
+        self.assertEqual(form["step_id"], "premise")
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(flow.unique_id, f"min_energi_{PREMISE_ID}")
+
+    async def test_configured_min_energi_premise_is_not_offered_again(self) -> None:
+        # Entries from 0.14.0 still have the bare premise ID until they are set up again.
+        legacy = _entry(PREMISE_ID, "min_energi", PREMISE_ID)
+
+        result = await self._flow(current_entries=[legacy]).async_step_min_energi(
+            {"name": "Vattenfall", "customer_id": "1", "password": "x"}
+        )
+
+        self.assertEqual(result, {"type": "abort", "reason": "already_configured"})
+
+    async def test_min_energi_entry_does_not_block_eldistribution(self) -> None:
+        flow = self._flow(current_entries=[_min_energi_entry()])
+        flow._async_validate = AsyncMock(side_effect=lambda config: (config, {}))
+
+        result = await flow.async_step_eldistribution(
+            {"customer_id": "1", "password": "x", "metering_point_id": PREMISE_ID}
+        )
+
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(flow.unique_id, PREMISE_ID)
+
     async def test_title_is_the_name_for_a_single_premise_account(self) -> None:
         flow = self._flow()
 
@@ -204,6 +275,42 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
         result = await flow.async_step_premise({"metering_point_id": PREMISE_ID})
 
         self.assertEqual(result["title"], "Vattenfall")
+
+
+class TestMinEnergiUniqueIdMigration(unittest.IsolatedAsyncioTestCase):
+    """Entries created before 1.2 move Min energi entries to the prefixed unique ID."""
+
+    async def _migrate(self, entry: SimpleNamespace) -> tuple[bool, list[dict]]:
+        updates: list[dict] = []
+        hass = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_update_entry=lambda entry, **changes: updates.append(changes)
+            )
+        )
+        return await integration.async_migrate_entry(hass, entry), updates
+
+    async def test_legacy_min_energi_entry_gets_its_own_unique_id(self) -> None:
+        entry = _entry(PREMISE_ID, "min_energi", PREMISE_ID, minor_version=1)
+
+        self.assertEqual(
+            await self._migrate(entry),
+            (True, [{"unique_id": f"min_energi_{PREMISE_ID}", "minor_version": 2}]),
+        )
+
+    async def test_eldistribution_entry_keeps_its_unique_id(self) -> None:
+        entry = _entry(PREMISE_ID, None, PREMISE_ID, minor_version=1)
+
+        self.assertEqual(
+            await self._migrate(entry), (True, [{"unique_id": PREMISE_ID, "minor_version": 2}])
+        )
+
+    async def test_current_entry_is_left_alone(self) -> None:
+        self.assertEqual(await self._migrate(_min_energi_entry()), (True, []))
+
+    async def test_entry_from_a_newer_version_is_refused(self) -> None:
+        entry = _entry(PREMISE_ID, "min_energi", PREMISE_ID, version=2)
+
+        self.assertEqual(await self._migrate(entry), (False, []))
 
 
 if __name__ == "__main__":

@@ -14,7 +14,11 @@ from homeassistant.helpers import config_validation as cv
 
 from .api import VattenfallApiClient
 from .const import (
+    ACCOUNT_TYPE_MIN_ENERGI,
+    CONF_ACCOUNT_TYPE,
+    CONF_METERING_POINT_ID,
     DOMAIN,
+    MIN_ENERGI_UNIQUE_ID_PREFIX,
     SERVICE_ATTR_END_DATE,
     SERVICE_ATTR_ENTRY_ID,
     SERVICE_ATTR_MODE,
@@ -63,6 +67,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry to the current version."""
+    if entry.version > 1:
+        # Downgraded from a future version.
+        return False
+
+    if entry.minor_version < 2:
+        # Min energi entries created by 0.14.0 used the bare premise ID, which can equal an
+        # Eldistribution metering point ID and then blocks adding the other service.
+        unique_id = entry.unique_id
+        if entry.data.get(CONF_ACCOUNT_TYPE) == ACCOUNT_TYPE_MIN_ENERGI:
+            unique_id = f"{MIN_ENERGI_UNIQUE_ID_PREFIX}{entry.data[CONF_METERING_POINT_ID]}"
+        hass.config_entries.async_update_entry(entry, unique_id=unique_id, minor_version=2)
+        _LOGGER.debug("Migrated Vattenfall entry %s to version 1.2", entry.entry_id)
+
     return True
 
 
