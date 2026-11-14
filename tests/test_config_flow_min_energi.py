@@ -6,7 +6,7 @@ import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from test_api_flow import api  # noqa: F401  # installs Home Assistant stubs
 
@@ -116,16 +116,31 @@ class _FakeMinEnergiClient:
         return None
 
 
-def _entry(unique_id: str, account_type: str | None, metering_point_id: str) -> SimpleNamespace:
+def _entry(
+    unique_id: str,
+    account_type: str | None,
+    metering_point_id: str,
+    version: int = 1,
+    minor_version: int = 2,
+) -> SimpleNamespace:
     data = {"metering_point_id": metering_point_id}
     if account_type:
         data["account_type"] = account_type
-    return SimpleNamespace(unique_id=unique_id, data=data)
+    return SimpleNamespace(
+        entry_id="entry-1",
+        unique_id=unique_id,
+        data=data,
+        version=version,
+        minor_version=minor_version,
+    )
 
 
 def _min_energi_entry() -> SimpleNamespace:
     return SimpleNamespace(
+        entry_id="entry-1",
         unique_id=f"min_energi_{PREMISE_ID}",
+        version=1,
+        minor_version=2,
         data={
             "account_type": "min_energi",
             "name": "Vattenfall",
@@ -244,9 +259,14 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
 
     async def test_min_energi_entry_does_not_block_eldistribution(self) -> None:
         flow = self._flow(current_entries=[_min_energi_entry()])
+        flow._async_validate = AsyncMock(side_effect=lambda config: (config, {}))
 
-        await flow.async_set_unique_id(PREMISE_ID)
-        flow._abort_if_unique_id_configured()  # must not raise
+        result = await flow.async_step_eldistribution(
+            {"customer_id": "1", "password": "x", "metering_point_id": PREMISE_ID}
+        )
+
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(flow.unique_id, PREMISE_ID)
 
     async def test_title_is_the_name_for_a_single_premise_account(self) -> None:
         flow = self._flow()
@@ -257,28 +277,40 @@ class TestMinEnergiConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["title"], "Vattenfall")
 
 
+class TestMinEnergiUniqueIdMigration(unittest.IsolatedAsyncioTestCase):
+    """Entries created before 1.2 move Min energi entries to the prefixed unique ID."""
 
-class TestMinEnergiUniqueIdMigration(unittest.TestCase):
-    """Entries created by 0.14.0 move to the Min energi unique ID on setup."""
-
-    def _migrate(self, entry: SimpleNamespace) -> list[dict]:
+    async def _migrate(self, entry: SimpleNamespace) -> tuple[bool, list[dict]]:
         updates: list[dict] = []
         hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_update_entry=lambda entry, **changes: updates.append(changes)
             )
         )
-        integration._async_migrate_min_energi_unique_id(hass, entry)
-        return updates
+        return await integration.async_migrate_entry(hass, entry), updates
 
-    def test_legacy_min_energi_entry_gets_its_own_unique_id(self) -> None:
-        updates = self._migrate(_entry(PREMISE_ID, "min_energi", PREMISE_ID))
+    async def test_legacy_min_energi_entry_gets_its_own_unique_id(self) -> None:
+        entry = _entry(PREMISE_ID, "min_energi", PREMISE_ID, minor_version=1)
 
-        self.assertEqual(updates, [{"unique_id": f"min_energi_{PREMISE_ID}"}])
+        self.assertEqual(
+            await self._migrate(entry),
+            (True, [{"unique_id": f"min_energi_{PREMISE_ID}", "minor_version": 2}]),
+        )
 
-    def test_migrated_and_eldistribution_entries_are_left_alone(self) -> None:
-        self.assertEqual(self._migrate(_min_energi_entry()), [])
-        self.assertEqual(self._migrate(_entry(PREMISE_ID, None, PREMISE_ID)), [])
+    async def test_eldistribution_entry_keeps_its_unique_id(self) -> None:
+        entry = _entry(PREMISE_ID, None, PREMISE_ID, minor_version=1)
+
+        self.assertEqual(
+            await self._migrate(entry), (True, [{"unique_id": PREMISE_ID, "minor_version": 2}])
+        )
+
+    async def test_current_entry_is_left_alone(self) -> None:
+        self.assertEqual(await self._migrate(_min_energi_entry()), (True, []))
+
+    async def test_entry_from_a_newer_version_is_refused(self) -> None:
+        entry = _entry(PREMISE_ID, "min_energi", PREMISE_ID, version=2)
+
+        self.assertEqual(await self._migrate(entry), (False, []))
 
 
 if __name__ == "__main__":

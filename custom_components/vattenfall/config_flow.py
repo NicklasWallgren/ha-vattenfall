@@ -36,7 +36,7 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_TEMPERATURE_AREA_CODE,
     DOMAIN,
-    min_energi_unique_id,
+    MIN_ENERGI_UNIQUE_ID_PREFIX,
 )
 from .min_energi_api import VattenfallMinEnergiClient
 
@@ -62,6 +62,8 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Vattenfall."""
 
     VERSION = 1
+    # 1.2: Min energi entries use a prefixed unique ID.
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Initialize flow state shared between Min energi steps."""
@@ -221,7 +223,7 @@ class VattenfallConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Let the user pick which Min energi premise to add."""
         if user_input is not None:
             premise_id = user_input[CONF_METERING_POINT_ID]
-            await self.async_set_unique_id(min_energi_unique_id(premise_id))
+            await self.async_set_unique_id(f"{MIN_ENERGI_UNIQUE_ID_PREFIX}{premise_id}")
             self._abort_if_unique_id_configured()
 
             name = self._min_energi_input.get(CONF_NAME, DEFAULT_NAME)

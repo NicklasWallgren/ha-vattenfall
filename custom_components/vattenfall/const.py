@@ -50,11 +50,6 @@ SERVICE_ATTR_END_DATE = "end_date"
 SERVICE_ATTR_MODE = "mode"
 SERVICE_ATTR_ENTRY_ID = "entry_id"
 
-
-def min_energi_unique_id(premise_id: str) -> str:
-    """Return the unique ID of a Min energi entry.
-
-    Eldistribution entries use the bare metering point ID, which can be the same ID as
-    the Min energi premise, so Min energi entries need their own namespace.
-    """
-    return f"{ACCOUNT_TYPE_MIN_ENERGI}_{premise_id}"
+# Eldistribution entries use the bare metering point ID as unique ID, which can equal a
+# Min energi premise ID, so Min energi entries prefix theirs.
+MIN_ENERGI_UNIQUE_ID_PREFIX = f"{ACCOUNT_TYPE_MIN_ENERGI}_"
